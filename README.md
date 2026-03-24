@@ -60,7 +60,9 @@ tests/                Unit, integration, and regression test suites
 
 ## Local development
 
-The repository targets Python 3.11 or later. The current local interpreter should be checked with:
+The repository targets Python 3.11 or later. Python `3.12` is a strong default for local development here.
+
+Check your interpreter:
 
 ```bash
 python3 --version
@@ -69,11 +71,20 @@ python3 --version
 Recommended setup:
 
 ```bash
-python3.11 -m venv .venv
+make venv
 source .venv/bin/activate
-pip install --upgrade pip
-pip install -e ".[dev]"
+make install-dev
 make test
+```
+
+Equivalent manual setup:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m pytest
 ```
 
 ## Environment and SEC access

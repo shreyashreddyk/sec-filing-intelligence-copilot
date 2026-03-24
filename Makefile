@@ -1,10 +1,19 @@
+.PHONY: venv
+venv:
+	python3.12 -m venv .venv
+	.venv/bin/python -m pip install --upgrade pip
+
+.PHONY: install-dev
+install-dev:
+	.venv/bin/pip install -e ".[dev]"
+
 .PHONY: test
 test:
-	python -m pytest
+	.venv/bin/python -m pytest
 
 .PHONY: smoke
 smoke:
-	python -m pytest tests/unit/test_smoke.py
+	.venv/bin/python -m pytest tests/unit/test_smoke.py
 
 .PHONY: lint
 lint:

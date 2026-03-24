@@ -1,0 +1,10 @@
+prompts:
+  answer_with_citations:
+    version: v0
+    description: Placeholder for grounded answer generation with strict citation IDs.
+  abstain_if_weak_support:
+    version: v0
+    description: Placeholder for abstention behavior when retrieval support is insufficient.
+  comparative_analysis:
+    version: v0
+    description: Placeholder for cross-company and cross-period comparison prompts.

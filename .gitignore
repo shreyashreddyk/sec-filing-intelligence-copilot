@@ -1,0 +1,5 @@
+.codex/
+AGENTS.md
+docs/
+__pycache__/
+*.pyc

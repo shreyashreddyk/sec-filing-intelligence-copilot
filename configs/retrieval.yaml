@@ -1,0 +1,20 @@
+chunking:
+  strategy: section_aware_placeholder
+  target_tokens: 500
+  overlap_tokens: 75
+  preserve_section_headers: true
+
+retrieval:
+  dense_top_k: 10
+  bm25_top_k: 10
+  fusion_strategy: reciprocal_rank_fusion_placeholder
+  final_context_k: 6
+
+reranking:
+  enabled: true
+  model_name: cross_encoder_placeholder
+  rerank_top_k: 20
+
+grounding:
+  require_citations: true
+  abstain_threshold: null

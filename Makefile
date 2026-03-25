@@ -18,3 +18,15 @@ smoke:
 .PHONY: lint
 lint:
 	@echo "Lint target placeholder. Add Ruff or equivalent when implementation begins."
+
+.PHONY: ingest
+ingest:
+	.venv/bin/python -m sec_copilot.ingest.cli run --companies-config configs/companies.yaml
+
+.PHONY: ingest-sample
+ingest-sample:
+	.venv/bin/python -m sec_copilot.ingest.cli run --companies-config configs/companies.yaml --company NVDA --annual-limit 1 --quarterly-limit 0
+
+.PHONY: test-live
+test-live:
+	.venv/bin/python -m pytest -m live_sec

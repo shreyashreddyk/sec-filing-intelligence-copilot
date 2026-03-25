@@ -5,3 +5,5 @@ docs/
 __pycache__/
 *.pyc
 *.egg-info/
+data/raw/
+data/processed/

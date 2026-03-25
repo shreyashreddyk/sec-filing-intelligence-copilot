@@ -1,0 +1,4 @@
+This filing does not include reliable item headers.
+
+The company discusses operating performance, liquidity, and risk in one long narrative.
+Because the structure is weak, the parser should preserve the text as one full_text section.

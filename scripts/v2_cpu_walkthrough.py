@@ -1,4 +1,4 @@
-"""Small device-aware walkthrough for the V2 dense retrieval pipeline."""
+"""Small device-aware walkthrough for the dense retrieval and prompt pipeline."""
 
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ import torch
 import transformers
 
 from sec_copilot.config import load_prompt_catalog, load_retrieval_config
-from sec_copilot.generation.pipeline import GroundedAnswerPipeline
-from sec_copilot.generation.prompts import GroundedPromptBuilder
+from sec_copilot.generation.prompts import GroundedPromptBuilder, PromptManager
 from sec_copilot.generation.providers import MockLLMProvider
 from sec_copilot.retrieval.corpus import ProcessedChunkStore
 from sec_copilot.retrieval.embedding import SentenceTransformerEmbeddingAdapter
@@ -48,7 +47,10 @@ def main(argv: list[str] | None = None) -> int:
             update={"embedding": config.embedding.model_copy(update={"device": args.device})}
         )
     prompt_catalog = load_prompt_catalog(args.prompts_config)
-    prompt_template = prompt_catalog.get("grounded_answer_baseline")
+    prompt_template = PromptManager(prompt_catalog).get_prompt(
+        config.prompting.prompt_name,
+        expected_version=config.prompting.prompt_version,
+    )
     config = config.model_copy(
         update={
             "index": config.index.model_copy(
@@ -122,12 +124,12 @@ def main(argv: list[str] | None = None) -> int:
         filters=RetrievalFilters(tickers=[args.ticker], form_types=args.form_type or ["10-K"]),
         debug=True,
     )
-    retrieval = retriever.retrieve(request)
-    print(f"[OK] Retrieval status: {retrieval.status} ({retrieval.reason_code})")
+    retrieval = retriever.retrieve(request.question, request.filters)
+    print(f"[OK] Dense parent candidate count: {retrieval.parent_candidate_count}")
     print("Retrieved parent chunks:")
     for chunk in retrieval.results:
         print(
-            f"  - rank={chunk.rank} chunk_id={chunk.chunk_id} score={chunk.score:.4f} "
+            f"  - rank={chunk.dense_rank} chunk_id={chunk.chunk_id} dense_score={chunk.dense_score:.4f} "
             f"best_subchunk_id={chunk.best_subchunk_id} section={chunk.section_title}"
         )
     if not retrieval.results:
@@ -135,25 +137,24 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     _print_step_header(6, "Prompt Assembly")
-    prompt_builder = GroundedPromptBuilder(config.prompting, prompt_template)
+    prompt_builder = GroundedPromptBuilder(config.retrieval, config.prompting, prompt_template)
     prompt = prompt_builder.build(question=args.question, retrieved_chunks=list(retrieval.results))
+    provider = MockLLMProvider()
+    provider_answer = provider.generate(prompt)
     print(f"[OK] Prompt version: {prompt.prompt_version}")
     print(f"[OK] Context chunk IDs: {prompt.context_chunk_ids}")
     print(f"[OK] Truncated chunk IDs: {prompt.truncated_chunk_ids}")
-    print(f"[OK] Used context chars: {prompt.used_context_chars}")
+    print(f"[OK] Used context tokens: {prompt.used_context_tokens}")
     print("Prompt user message preview:")
     print(_preview(prompt.messages[-1].content, limit=900))
 
-    _print_step_header(7, "Grounded Answer with Mock Provider")
-    pipeline = GroundedAnswerPipeline(retriever, prompt_builder, MockLLMProvider())
-    answer = pipeline.answer(request)
-    print(f"[OK] Answer status: {answer.status} ({answer.reason_code})")
-    print(f"[OK] Provider: {answer.provider_name}")
+    _print_step_header(7, "Structured Mock Provider Output")
+    print(f"[OK] Mock abstained: {provider_answer.abstained}")
     print("Answer text:")
-    print(answer.answer_text)
-    print("Citations:")
-    for citation in answer.citations:
-        print(f"  - {citation.citation_id} | {citation.form_type} | {citation.section_title}")
+    print(provider_answer.answer)
+    print("Citation chunk IDs:")
+    for citation_chunk_id in provider_answer.citation_chunk_ids:
+        print(f"  - {citation_chunk_id}")
 
     print("\nWalkthrough completed successfully.")
     return 0

@@ -41,10 +41,17 @@ class ProcessedChunkStore:
     def get(self, chunk_id: str) -> ChunkRecord | None:
         return self._chunks_by_id.get(chunk_id)
 
-    def has_matches(self, filters: RetrievalFilters) -> bool:
+    def filtered_values(self, filters: RetrievalFilters) -> tuple[ChunkRecord, ...]:
         from sec_copilot.retrieval.filters import chunk_matches_filters
 
-        return any(chunk_matches_filters(chunk, filters) for chunk in self._chunks_by_id.values())
+        return tuple(
+            chunk
+            for chunk_id, chunk in sorted(self._chunks_by_id.items())
+            if chunk_matches_filters(chunk, filters)
+        )
+
+    def has_matches(self, filters: RetrievalFilters) -> bool:
+        return len(self.filtered_values(filters)) > 0
 
 
 __all__ = ["ProcessedChunkStore"]

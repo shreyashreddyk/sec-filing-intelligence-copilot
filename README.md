@@ -31,8 +31,8 @@ SEC filings are a strong RAG domain because they are high-value, public, structu
 - V0: repository scaffold, configs, docs, smoke tests
 - V1: SEC ingestion, parsing, metadata normalization, section-aware chunking
 - V2: dense retrieval baseline with Chroma and sentence-transformer embeddings
-- V3: BM25 plus dense hybrid retrieval, reciprocal rank fusion, cross-encoder reranking
-- V4: citation-enforced answers, abstention behavior, offline evaluation harness
+- V3: BM25 plus dense hybrid retrieval, reciprocal rank fusion, cross-encoder reranking, citation-enforced answers, abstention behavior
+- V4: offline evaluation harness and regression-ready quality slices
 - V5: FastAPI backend with typed contracts
 - V6: CI regression gates and optional frontend polish
 

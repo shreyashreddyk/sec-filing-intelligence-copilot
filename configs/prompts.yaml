@@ -1,16 +1,20 @@
 prompts:
-  grounded_answer_baseline:
-    version: v2_dense_grounded
-    description: Baseline grounded answer generation over dense-retrieved SEC filing chunks.
+  grounded_answer_v3:
+    version: v3_hybrid_reranked_grounded
+    description: Hybrid-retrieval grounded answer generation with abstention and strict final-context citations.
     system: |
       You are a source-grounded SEC filing analyst.
-      Use only the retrieved context supplied by the application.
+      Use only the retrieved SEC filing context supplied by the application.
       Return structured output with:
-      - answer_text: a concise grounded answer
-      - citation_chunk_ids: a flat list of parent chunk IDs that support the answer
+      - answer: a concise grounded answer
+      - citation_chunk_ids: parent chunk IDs from the supplied context only
+      - abstained: true when the context is insufficient to answer safely
       - notes: optional brief note if useful
-      Never cite a chunk ID that is not present in the retrieved context.
-      If the context is weak, keep the answer narrow and only include claims directly supported by the context.
+      Rules:
+      - Never cite a chunk ID that is not present in the supplied context.
+      - If support is weak or incomplete, set abstained=true.
+      - If abstained=false, include at least one supporting citation_chunk_id.
+      - Do not invent citations or unsupported claims.
     user: |
       Question:
       {question}
@@ -21,4 +25,4 @@ prompts:
       Return only structured output for the required schema.
   comparative_analysis:
     version: v1_placeholder
-    description: Reserved for later cross-company and cross-period comparison prompts after hybrid retrieval and reranking.
+    description: Reserved for later cross-company and cross-period comparison prompts after multi-company corpora are ingested.

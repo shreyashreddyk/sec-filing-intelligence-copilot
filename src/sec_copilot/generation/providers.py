@@ -28,10 +28,18 @@ class MockLLMProvider(LLMProvider):
 
     def generate(self, prompt: PromptAssemblyResult) -> ProviderAnswer:
         citation_chunk_ids = prompt.context_chunk_ids[:2]
-        suffix = ", ".join(citation_chunk_ids) if citation_chunk_ids else "no retrieved chunks"
+        if not citation_chunk_ids:
+            return ProviderAnswer(
+                answer="Insufficient evidence in the supplied context.",
+                citation_chunk_ids=[],
+                abstained=True,
+                notes="Deterministic mock abstention.",
+            )
+        suffix = ", ".join(citation_chunk_ids)
         return ProviderAnswer(
-            answer_text=f"Mock grounded answer based on {suffix}.",
+            answer=f"Mock grounded answer based on {suffix}.",
             citation_chunk_ids=citation_chunk_ids,
+            abstained=False,
             notes="Deterministic mock provider output.",
         )
 

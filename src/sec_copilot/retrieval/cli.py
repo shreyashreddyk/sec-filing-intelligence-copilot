@@ -1,4 +1,4 @@
-"""CLI for V2 dense indexing, retrieval inspection, and grounded answers."""
+"""CLI for V3 indexing, retrieval inspection, and grounded answers."""
 
 from __future__ import annotations
 
@@ -10,17 +10,19 @@ from dotenv import load_dotenv
 
 from sec_copilot.config import load_prompt_catalog, load_retrieval_config
 from sec_copilot.generation.pipeline import GroundedAnswerPipeline
-from sec_copilot.generation.prompts import GroundedPromptBuilder
+from sec_copilot.generation.prompts import GroundedPromptBuilder, PromptManager
 from sec_copilot.generation.providers import MockLLMProvider, OpenAILLMProvider
+from sec_copilot.rerank.cross_encoder import CrossEncoderReranker
+from sec_copilot.retrieval.bm25 import BM25Retriever
 from sec_copilot.retrieval.corpus import ProcessedChunkStore
 from sec_copilot.retrieval.embedding import SentenceTransformerEmbeddingAdapter
 from sec_copilot.retrieval.indexer import ChromaIndexManager
-from sec_copilot.retrieval.retriever import DenseRetriever
+from sec_copilot.retrieval.retriever import DenseRetriever, HybridRetriever
 from sec_copilot.schemas.retrieval import QueryRequest, RetrievalFilters
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the V2 retrieval CLI."""
+    """Run the V3 retrieval CLI."""
 
     load_dotenv()
     parser = _build_parser()
@@ -43,19 +45,26 @@ def main(argv: list[str] | None = None) -> int:
         return _run_index(config, args)
 
     prompt_catalog = load_prompt_catalog(args.prompts_config)
-    prompt_template = prompt_catalog.get("grounded_answer_baseline")
+    prompt_manager = PromptManager(prompt_catalog)
+    prompt_template = prompt_manager.get_prompt(
+        config.prompting.prompt_name,
+        expected_version=config.prompting.prompt_version,
+    )
     store = ProcessedChunkStore.load(args.data_dir)
     adapter = SentenceTransformerEmbeddingAdapter(config.embedding)
     index_manager = ChromaIndexManager(config, adapter)
     collection = index_manager.get_collection()
-    retriever = DenseRetriever(config, adapter, store, collection)
+    dense_retriever = DenseRetriever(config, adapter, store, collection)
+    bm25_retriever = BM25Retriever(store)
+    reranker = CrossEncoderReranker(config.reranking) if config.reranking.enabled else None
+    hybrid_retriever = HybridRetriever(config, store, dense_retriever, bm25_retriever, reranker)
 
     if args.command == "retrieve":
-        return _run_retrieve(retriever, args)
+        return _run_retrieve(hybrid_retriever, args)
     if args.command == "answer":
-        prompt_builder = GroundedPromptBuilder(config.prompting, prompt_template)
+        prompt_builder = GroundedPromptBuilder(config.retrieval, config.prompting, prompt_template)
         provider = _build_provider(config, args)
-        pipeline = GroundedAnswerPipeline(retriever, prompt_builder, provider)
+        pipeline = GroundedAnswerPipeline(config, hybrid_retriever, prompt_builder, provider)
         return _run_answer(pipeline, args)
 
     parser.print_help()
@@ -76,21 +85,23 @@ def _run_index(config, args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_retrieve(retriever: DenseRetriever, args: argparse.Namespace) -> int:
+def _run_retrieve(retriever: HybridRetriever, args: argparse.Namespace) -> int:
     request = _build_request(args)
-    outcome = retriever.retrieve(request)
+    response = retriever.retrieve(request).to_response()
     if request.debug:
-        _print_debug_results(outcome.debug.results)
-    return 0 if outcome.status in {"ok", "weak_results"} else 1
+        _print_retrieved_chunks(response.retrieved_chunks)
+        _print_stage_counts(response.stage_counts, response.reranker_applied, response.reranker_skipped_reason)
+    print(response.model_dump_json(indent=2))
+    return 0
 
 
 def _run_answer(pipeline: GroundedAnswerPipeline, args: argparse.Namespace) -> int:
     request = _build_request(args)
     response = pipeline.answer(request)
-    if request.debug and response.retrieval_debug is not None:
-        _print_debug_results(response.retrieval_debug.results)
+    if request.debug:
+        _print_retrieved_chunks(response.retrieved_chunks)
     print(response.model_dump_json(indent=2))
-    return 0 if response.status in {"ok", "weak_results", "no_results"} else 1
+    return 0
 
 
 def _build_request(args: argparse.Namespace) -> QueryRequest:
@@ -102,8 +113,6 @@ def _build_request(args: argparse.Namespace) -> QueryRequest:
             filing_date_from=args.date_from,
             filing_date_to=args.date_to,
         ),
-        retrieval_top_k=args.top_k,
-        prompt_top_n=args.prompt_top_n,
         debug=args.debug,
     )
 
@@ -116,23 +125,37 @@ def _build_provider(config, args: argparse.Namespace):
     return OpenAILLMProvider(model_name=model_name)
 
 
-def _print_debug_results(results) -> None:
-    print("Dense retrieval debug results (pre-LLM score = 1.0 - cosine distance):")
-    for chunk in results:
+def _print_retrieved_chunks(results) -> None:
+    print("Retrieved parent chunks:")
+    for index, chunk in enumerate(results, start=1):
         print(
-            f"rank={chunk.rank} "
+            f"rank={index} "
             f"chunk_id={chunk.chunk_id} "
-            f"score={chunk.score:.4f} "
-            f"ticker={chunk.ticker} "
-            f"form_type={chunk.form_type} "
-            f"filing_date={chunk.filing_date.isoformat()} "
-            f"section_title={chunk.section_title} "
-            f"source_url={chunk.source_url}"
+            f"dense_rank={chunk.dense_rank} dense_score={_fmt(chunk.dense_score)} "
+            f"bm25_rank={chunk.bm25_rank} bm25_score={_fmt(chunk.bm25_score)} "
+            f"rrf_score={_fmt(chunk.rrf_score)} "
+            f"rerank_rank={chunk.rerank_rank} rerank_score={_fmt(chunk.rerank_score)} "
+            f"section_title={chunk.section_title}"
         )
 
 
+def _print_stage_counts(stage_counts, reranker_applied: bool, reranker_skipped_reason: str | None) -> None:
+    print(
+        "Stage counts:",
+        stage_counts.model_dump(mode="json"),
+        f"reranker_applied={reranker_applied}",
+        f"reranker_skipped_reason={reranker_skipped_reason}",
+    )
+
+
+def _fmt(value: float | None) -> str:
+    if value is None:
+        return "None"
+    return f"{value:.4f}"
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Dense retrieval and grounded answer CLI.")
+    parser = argparse.ArgumentParser(description="Hybrid retrieval and grounded answer CLI.")
     parser.add_argument(
         "--retrieval-config",
         default="configs/retrieval.yaml",
@@ -163,10 +186,10 @@ def _build_parser() -> argparse.ArgumentParser:
     index_parser = subparsers.add_parser("index", help="Build or update the dense Chroma index.")
     index_parser.add_argument("--mode", choices=("rebuild", "upsert"), default=None, help="Index lifecycle mode.")
 
-    retrieve_parser = subparsers.add_parser("retrieve", help="Run dense retrieval only.")
+    retrieve_parser = subparsers.add_parser("retrieve", help="Run hybrid retrieval only.")
     _add_query_arguments(retrieve_parser)
 
-    answer_parser = subparsers.add_parser("answer", help="Run dense retrieval plus grounded answer generation.")
+    answer_parser = subparsers.add_parser("answer", help="Run hybrid retrieval plus grounded answer generation.")
     _add_query_arguments(answer_parser)
     answer_parser.add_argument("--provider", choices=("mock", "openai"), help="Provider backend for answer generation.")
     answer_parser.add_argument("--provider-model", help="Optional provider model override.")
@@ -180,9 +203,7 @@ def _add_query_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--form-type", action="append", help="Form type filter. Repeat for multiple values.")
     parser.add_argument("--date-from", help="Inclusive filing-date lower bound in YYYY-MM-DD format.")
     parser.add_argument("--date-to", help="Inclusive filing-date upper bound in YYYY-MM-DD format.")
-    parser.add_argument("--top-k", type=int, help="Override the parent retrieval top-k.")
-    parser.add_argument("--prompt-top-n", type=int, help="Override the prompt context top-n when answering.")
-    parser.add_argument("--debug", action="store_true", help="Print dense retrieval debug output.")
+    parser.add_argument("--debug", action="store_true", help="Print retrieval debug output.")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -1,26 +1,55 @@
-"""Dense retrieval over Chroma with parent-chunk collapse and typed outputs."""
+"""Dense, BM25, fusion, and hybrid retrieval orchestration."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Literal
 
 from sec_copilot.config.retrieval import RetrievalConfig
+from sec_copilot.rerank.cross_encoder import Reranker, RerankerUnavailableError
+from sec_copilot.retrieval.bm25 import BM25Retriever
 from sec_copilot.retrieval.corpus import ProcessedChunkStore
 from sec_copilot.retrieval.embedding import EmbeddingAdapter
 from sec_copilot.retrieval.filters import build_chroma_where
-from sec_copilot.schemas.retrieval import DebugRetrieval, QueryRequest, RetrievedChunk
+from sec_copilot.retrieval.fusion import fuse_with_rrf
+from sec_copilot.schemas.retrieval import (
+    QueryRequest,
+    ReasonCode,
+    RetrievedChunk,
+    RetrievalFilters,
+    RetrievalResponse,
+    RetrievalStageCounts,
+)
+from sec_copilot.utils.logging import log_query_event
 
 
 @dataclass(frozen=True)
-class DenseRetrievalOutcome:
-    """Result of one dense-retrieval call before generation."""
+class DenseRetrievalResult:
+    """Dense parent-candidate results plus query-stage counts."""
 
-    status: Literal["ok", "no_results", "weak_results"]
-    reason_code: Literal["none", "filters_excluded_all", "no_retrieval_hits", "low_similarity"]
     results: tuple[RetrievedChunk, ...]
-    debug: DebugRetrieval
+    subchunk_hit_count: int
+    parent_candidate_count: int
+
+
+@dataclass(frozen=True)
+class HybridRetrievalOutcome:
+    """Internal retrieval outcome shared by retrieval and answer flows."""
+
+    reason_code: ReasonCode
+    retrieved_chunks: tuple[RetrievedChunk, ...]
+    stage_counts: RetrievalStageCounts
+    reranker_applied: bool
+    reranker_skipped_reason: str | None = None
+
+    def to_response(self) -> RetrievalResponse:
+        return RetrievalResponse(
+            reason_code=self.reason_code,
+            retrieved_chunks=list(self.retrieved_chunks),
+            stage_counts=self.stage_counts,
+            reranker_applied=self.reranker_applied,
+            reranker_skipped_reason=self.reranker_skipped_reason,
+        )
 
 
 class DenseRetriever:
@@ -32,27 +61,16 @@ class DenseRetriever:
         self.store = store
         self.collection = collection
 
-    def retrieve(self, request: QueryRequest) -> DenseRetrievalOutcome:
+    def retrieve(self, question: str, filters: RetrievalFilters, top_k: int | None = None) -> DenseRetrievalResult:
         if len(self.store) == 0:
-            return self._empty_outcome(
-                status="no_results",
-                reason_code="no_retrieval_hits",
-                retrieval_top_k=request.retrieval_top_k or self.config.retrieval.retrieval_top_k,
-            )
+            return DenseRetrievalResult(results=(), subchunk_hit_count=0, parent_candidate_count=0)
 
-        if not self.store.has_matches(request.filters):
-            return self._empty_outcome(
-                status="no_results",
-                reason_code="filters_excluded_all",
-                retrieval_top_k=request.retrieval_top_k or self.config.retrieval.retrieval_top_k,
-            )
-
-        retrieval_top_k = request.retrieval_top_k or self.config.retrieval.retrieval_top_k
-        where = build_chroma_where(request.filters)
-        query_embedding = self.adapter.embed_texts([request.question])[0]
+        dense_top_k = top_k or self.config.retrieval.dense_top_k
+        where = build_chroma_where(filters)
+        query_embedding = self.adapter.embed_texts([question])[0]
         raw = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=self.config.retrieval.retrieval_subchunk_top_k,
+            n_results=self.config.retrieval.dense_subchunk_top_k,
             where=where,
             include=["distances", "metadatas"],
         )
@@ -72,11 +90,10 @@ class DenseRetriever:
 
             score = 1.0 - float(raw_distance)
             current = collapsed.get(parent_chunk_id)
-            if current is not None and score <= current.score:
+            if current is not None and score <= (current.dense_score or float("-inf")):
                 continue
 
             collapsed[parent_chunk_id] = RetrievedChunk(
-                rank=1,
                 chunk_id=parent_chunk.chunk_id,
                 document_id=parent_chunk.document_id,
                 ticker=parent_chunk.ticker,
@@ -87,63 +104,164 @@ class DenseRetriever:
                 section_title=parent_chunk.section_title,
                 source_url=parent_chunk.source_url,
                 text=parent_chunk.text,
-                score=score,
-                raw_distance=float(raw_distance),
+                dense_score=score,
+                dense_raw_distance=float(raw_distance),
                 best_subchunk_id=subchunk_id,
-            )
-
-        if not collapsed:
-            return self._empty_outcome(
-                status="no_results",
-                reason_code="no_retrieval_hits",
-                retrieval_top_k=retrieval_top_k,
             )
 
         ordered = sorted(
             collapsed.values(),
-            key=lambda chunk: (-chunk.score, chunk.raw_distance, chunk.chunk_id),
-        )[:retrieval_top_k]
+            key=lambda chunk: (
+                -(chunk.dense_score or float("-inf")),
+                chunk.dense_raw_distance if chunk.dense_raw_distance is not None else float("inf"),
+                chunk.chunk_id,
+            ),
+        )[:dense_top_k]
         ranked = tuple(
-            chunk.model_copy(update={"rank": index + 1})
+            chunk.model_copy(update={"dense_rank": index + 1})
             for index, chunk in enumerate(ordered)
         )
-        debug = DebugRetrieval(
-            retrieval_subchunk_top_k=self.config.retrieval.retrieval_subchunk_top_k,
-            retrieval_top_k=retrieval_top_k,
-            results=list(ranked),
-        )
-        if ranked and ranked[0].score < self.config.retrieval.weak_score_threshold:
-            return DenseRetrievalOutcome(
-                status="weak_results",
-                reason_code="low_similarity",
-                results=ranked,
-                debug=debug,
-            )
-
-        return DenseRetrievalOutcome(
-            status="ok",
-            reason_code="none",
+        return DenseRetrievalResult(
             results=ranked,
-            debug=debug,
+            subchunk_hit_count=len(ids),
+            parent_candidate_count=len(collapsed),
         )
 
-    def _empty_outcome(
+
+class HybridRetriever:
+    """Hybrid retrieval with dense roll-up, BM25, RRF, and optional reranking."""
+
+    def __init__(
         self,
-        *,
-        status: Literal["no_results", "weak_results"],
-        reason_code: Literal["filters_excluded_all", "no_retrieval_hits", "low_similarity"],
-        retrieval_top_k: int,
-    ) -> DenseRetrievalOutcome:
-        return DenseRetrievalOutcome(
-            status=status,
+        config: RetrievalConfig,
+        store: ProcessedChunkStore,
+        dense_retriever: DenseRetriever,
+        bm25_retriever: BM25Retriever,
+        reranker: Reranker | None = None,
+    ) -> None:
+        self.config = config
+        self.store = store
+        self.dense_retriever = dense_retriever
+        self.bm25_retriever = bm25_retriever
+        self.reranker = reranker
+
+    def retrieve(self, request: QueryRequest) -> HybridRetrievalOutcome:
+        filtered_parent_chunks = self.store.filtered_values(request.filters)
+        if not filtered_parent_chunks:
+            stage_counts = RetrievalStageCounts(
+                filtered_parent_count=0,
+                dense_subchunk_hit_count=0,
+                dense_parent_candidate_count=0,
+                bm25_candidate_count=0,
+                fused_candidate_count=0,
+                reranked_candidate_count=0,
+            )
+            outcome = HybridRetrievalOutcome(
+                reason_code="filters_excluded_all_chunks",
+                retrieved_chunks=(),
+                stage_counts=stage_counts,
+                reranker_applied=False,
+                reranker_skipped_reason="filters_excluded_all_chunks",
+            )
+            self._log_retrieval(request, outcome)
+            return outcome
+
+        dense_result = self.dense_retriever.retrieve(request.question, request.filters)
+        bm25_result = self.bm25_retriever.retrieve(
+            request.question,
+            request.filters,
+            self.config.retrieval.bm25_top_k,
+        )
+
+        if not dense_result.results and not bm25_result.results:
+            stage_counts = RetrievalStageCounts(
+                filtered_parent_count=len(filtered_parent_chunks),
+                dense_subchunk_hit_count=dense_result.subchunk_hit_count,
+                dense_parent_candidate_count=dense_result.parent_candidate_count,
+                bm25_candidate_count=bm25_result.candidate_count,
+                fused_candidate_count=0,
+                reranked_candidate_count=0,
+            )
+            outcome = HybridRetrievalOutcome(
+                reason_code="no_hits",
+                retrieved_chunks=(),
+                stage_counts=stage_counts,
+                reranker_applied=False,
+                reranker_skipped_reason="no_hits",
+            )
+            self._log_retrieval(request, outcome)
+            return outcome
+
+        fused_results = fuse_with_rrf(
+            dense_results=dense_result.results,
+            bm25_results=bm25_result.results,
+            rrf_k=self.config.fusion.rrf_k,
+            top_k=self.config.retrieval.fused_top_k_before_rerank,
+        )
+
+        reason_code: ReasonCode = "ok"
+        reranker_applied = False
+        reranker_skipped_reason: str | None = None
+        final_results = fused_results
+
+        if self.config.reranking.enabled:
+            if self.reranker is None:
+                reason_code = "reranker_unavailable"
+                reranker_skipped_reason = "reranker_not_configured"
+            else:
+                try:
+                    final_results = self.reranker.rerank(request.question, fused_results)
+                    reranker_applied = True
+                except RerankerUnavailableError:
+                    reason_code = "reranker_unavailable"
+                    reranker_skipped_reason = "reranker_unavailable"
+                    final_results = fused_results
+        else:
+            reranker_skipped_reason = "disabled_by_config"
+
+        stage_counts = RetrievalStageCounts(
+            filtered_parent_count=len(filtered_parent_chunks),
+            dense_subchunk_hit_count=dense_result.subchunk_hit_count,
+            dense_parent_candidate_count=dense_result.parent_candidate_count,
+            bm25_candidate_count=bm25_result.candidate_count,
+            fused_candidate_count=len(fused_results),
+            reranked_candidate_count=len(final_results) if reranker_applied else 0,
+        )
+        outcome = HybridRetrievalOutcome(
             reason_code=reason_code,
-            results=(),
-            debug=DebugRetrieval(
-                retrieval_subchunk_top_k=self.config.retrieval.retrieval_subchunk_top_k,
-                retrieval_top_k=retrieval_top_k,
-                results=[],
-            ),
+            retrieved_chunks=final_results,
+            stage_counts=stage_counts,
+            reranker_applied=reranker_applied,
+            reranker_skipped_reason=reranker_skipped_reason,
+        )
+        self._log_retrieval(request, outcome)
+        return outcome
+
+    def _log_retrieval(self, request: QueryRequest, outcome: HybridRetrievalOutcome) -> None:
+        log_query_event(
+            {
+                "query_text": request.question,
+                "filters": request.filters.model_dump(mode="json"),
+                "filtered_parent_count": outcome.stage_counts.filtered_parent_count,
+                "dense_subchunk_hit_count": outcome.stage_counts.dense_subchunk_hit_count,
+                "dense_parent_candidate_count": outcome.stage_counts.dense_parent_candidate_count,
+                "bm25_candidate_count": outcome.stage_counts.bm25_candidate_count,
+                "fused_candidate_count": outcome.stage_counts.fused_candidate_count,
+                "reranked_candidate_count": outcome.stage_counts.reranked_candidate_count,
+                "final_context_chunk_ids": [],
+                "prompt_name": None,
+                "prompt_version": None,
+                "abstained": None,
+                "reason_code": outcome.reason_code,
+                "reranker_applied": outcome.reranker_applied,
+                "reranker_skipped_reason": outcome.reranker_skipped_reason,
+            }
         )
 
 
-__all__ = ["DenseRetrievalOutcome", "DenseRetriever"]
+__all__ = [
+    "DenseRetrievalResult",
+    "DenseRetriever",
+    "HybridRetrievalOutcome",
+    "HybridRetriever",
+]

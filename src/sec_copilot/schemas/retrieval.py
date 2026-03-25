@@ -1,17 +1,29 @@
-"""Pydantic schema boundaries for V2 retrieval and grounded answers."""
+"""Pydantic schema boundaries for V3 retrieval, reranking, and grounded answers."""
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from sec_copilot.utils.normalization import normalize_form_type, normalize_ticker
 
 
+ReasonCode: TypeAlias = Literal[
+    "ok",
+    "no_hits",
+    "filters_excluded_all_chunks",
+    "weak_support",
+    "insufficient_supporting_chunks",
+    "model_abstained",
+    "invalid_citations",
+    "reranker_unavailable",
+]
+
+
 class RetrievalFilters(BaseModel):
-    """Normalized metadata filters applied before dense retrieval."""
+    """Normalized metadata filters applied before dense and BM25 retrieval."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -48,14 +60,12 @@ class RetrievalFilters(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    """Typed query contract for retrieval and grounded answer generation."""
+    """Typed query contract for V3 retrieval and grounded answer generation."""
 
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1)
     filters: RetrievalFilters = Field(default_factory=RetrievalFilters)
-    retrieval_top_k: int | None = Field(default=None, ge=1, le=50)
-    prompt_top_n: int | None = Field(default=None, ge=1, le=20)
     debug: bool = False
 
     @field_validator("question")
@@ -68,11 +78,10 @@ class QueryRequest(BaseModel):
 
 
 class RetrievedChunk(BaseModel):
-    """Collapsed parent-chunk result returned to callers."""
+    """Parent-chunk retrieval artifact shared across debug and query responses."""
 
     model_config = ConfigDict(extra="forbid")
 
-    rank: int = Field(ge=1)
     chunk_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     ticker: str = Field(min_length=1)
@@ -83,9 +92,15 @@ class RetrievedChunk(BaseModel):
     section_title: str = Field(min_length=1)
     source_url: str = Field(min_length=1)
     text: str = Field(min_length=1)
-    score: float
-    raw_distance: float
-    best_subchunk_id: str = Field(min_length=1)
+    dense_rank: int | None = Field(default=None, ge=1)
+    dense_score: float | None = None
+    dense_raw_distance: float | None = None
+    best_subchunk_id: str | None = None
+    bm25_rank: int | None = Field(default=None, ge=1)
+    bm25_score: float | None = None
+    rrf_score: float | None = None
+    rerank_rank: int | None = Field(default=None, ge=1)
+    rerank_score: float | None = None
 
     @field_validator("ticker")
     @classmethod
@@ -103,7 +118,7 @@ class Citation(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    citation_id: str = Field(min_length=1, description="Stable citation ID. Equals the parent chunk_id in V2.")
+    citation_id: str = Field(min_length=1, description="Stable citation ID. Always equals the parent chunk_id.")
     ticker: str = Field(min_length=1)
     form_type: str = Field(min_length=1)
     filing_date: date
@@ -123,17 +138,29 @@ class Citation(BaseModel):
         return normalize_form_type(value)
 
 
-class DebugRetrieval(BaseModel):
-    """Structured retrieval-debug payload for inspection and CLI output."""
+class RetrievalStageCounts(BaseModel):
+    """Stage-by-stage candidate counts for retrieval debugging."""
 
     model_config = ConfigDict(extra="forbid")
 
-    distance_space: Literal["cosine"] = "cosine"
-    score_semantics: Literal["score = 1.0 - raw_distance"] = "score = 1.0 - raw_distance"
-    pre_llm_retrieval_only: bool = True
-    retrieval_subchunk_top_k: int = Field(ge=1)
-    retrieval_top_k: int = Field(ge=1)
-    results: list[RetrievedChunk] = Field(default_factory=list)
+    filtered_parent_count: int = Field(ge=0)
+    dense_subchunk_hit_count: int = Field(ge=0)
+    dense_parent_candidate_count: int = Field(ge=0)
+    bm25_candidate_count: int = Field(ge=0)
+    fused_candidate_count: int = Field(ge=0)
+    reranked_candidate_count: int = Field(ge=0)
+
+
+class RetrievalResponse(BaseModel):
+    """Public retrieval-debug response returned by the retrieval CLI or API."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason_code: ReasonCode
+    retrieved_chunks: list[RetrievedChunk] = Field(default_factory=list)
+    stage_counts: RetrievalStageCounts
+    reranker_applied: bool
+    reranker_skipped_reason: str | None = None
 
 
 class ProviderAnswer(BaseModel):
@@ -141,17 +168,15 @@ class ProviderAnswer(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    answer_text: str = Field(min_length=1)
+    answer: str = ""
     citation_chunk_ids: list[str] = Field(default_factory=list)
+    abstained: bool = False
     notes: str | None = None
 
-    @field_validator("answer_text")
+    @field_validator("answer")
     @classmethod
-    def _validate_answer_text(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("answer_text must be non-empty")
-        return normalized
+    def _normalize_answer(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("citation_chunk_ids", mode="after")
     @classmethod
@@ -165,33 +190,33 @@ class ProviderAnswer(BaseModel):
                 normalized.append(clean)
         return normalized
 
+    @model_validator(mode="after")
+    def _validate_shape(self) -> "ProviderAnswer":
+        if not self.abstained and not self.answer:
+            raise ValueError("answer must be non-empty when abstained is false")
+        return self
 
-class AnswerResponse(BaseModel):
-    """Typed grounded-answer payload returned by the V2 answer pipeline."""
+
+class QueryResponse(BaseModel):
+    """Typed V3 grounded-answer payload returned by the answer pipeline."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["ok", "no_results", "weak_results", "invalid_grounding"]
-    reason_code: Literal[
-        "none",
-        "filters_excluded_all",
-        "no_retrieval_hits",
-        "low_similarity",
-        "invalid_citations",
-    ]
-    answer_text: str
+    answer: str
     citations: list[Citation] = Field(default_factory=list)
-    retrieval_debug: DebugRetrieval | None = None
-    provider_name: str | None = None
-    prompt_version: str = Field(min_length=1)
+    abstained: bool
+    retrieved_chunks: list[RetrievedChunk] = Field(default_factory=list)
+    reason_code: ReasonCode
 
 
 __all__ = [
-    "AnswerResponse",
     "Citation",
-    "DebugRetrieval",
     "ProviderAnswer",
     "QueryRequest",
+    "QueryResponse",
+    "ReasonCode",
     "RetrievedChunk",
     "RetrievalFilters",
+    "RetrievalResponse",
+    "RetrievalStageCounts",
 ]

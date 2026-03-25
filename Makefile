@@ -43,6 +43,10 @@ retrieve:
 answer-mock:
 	.venv/bin/python -m sec_copilot.retrieval.cli answer --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --provider mock --debug
 
+.PHONY: compare-v3
+compare-v3:
+	.venv/bin/python scripts/compare_retrieval_modes.py --include-generation --write-csv
+
 .PHONY: walkthrough-v2
 walkthrough-v2:
 	.venv/bin/python scripts/v2_cpu_walkthrough.py

@@ -5,7 +5,7 @@ chunking:
   preserve_section_headers: true
 
 index:
-  collection_name: sec_semis_v1_dense_v2
+  collection_name: sec_semis_v1_hybrid_v3
   persist_directory: artifacts/chroma
   distance_space: cosine
   default_mode: rebuild
@@ -20,25 +20,40 @@ embedding:
   subchunk_overlap_tokens: 40
 
 retrieval:
-  retrieval_subchunk_top_k: 24
-  retrieval_top_k: 8
-  weak_score_threshold: 0.20
+  dense_subchunk_top_k: 24
+  dense_top_k: 8
+  bm25_top_k: 8
+  fused_top_k_before_rerank: 12
+  generation_context_top_k: 4
+
+bm25:
+  preprocessing: sec_regex_v1
+
+fusion:
+  method: rrf
+  rrf_k: 60
 
 prompting:
-  prompt_version: v2_dense_grounded
-  prompt_top_n: 4
-  prompt_chunk_max_chars: 1800
-  prompt_context_max_chars: 7200
+  prompt_name: grounded_answer_v3
+  prompt_version: v3_hybrid_reranked_grounded
+  max_context_tokens: 2400
 
 provider:
   default_name: openai
   openai_model: gpt-4.1-mini
 
 reranking:
-  enabled: false
-  model_name: null
-  rerank_top_k: null
+  enabled: true
+  required_for_generation: true
+  model_name: cross-encoder/ms-marco-MiniLM-L-6-v2
+  rerank_top_k: 8
+  batch_size: 8
+  device: auto
+
+abstention:
+  weak_top_rerank_score_threshold: 0.60
+  supporting_chunk_rerank_score_threshold: 0.45
+  min_supporting_chunks: 2
 
 grounding:
-  require_citations: true
-  invalid_response_policy: invalid_grounding
+  citations_must_come_from_final_context: true

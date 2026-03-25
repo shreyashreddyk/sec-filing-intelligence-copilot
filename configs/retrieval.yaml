@@ -4,17 +4,41 @@ chunking:
   overlap_tokens: 75
   preserve_section_headers: true
 
+index:
+  collection_name: sec_semis_v1_dense_v2
+  persist_directory: artifacts/chroma
+  distance_space: cosine
+  default_mode: rebuild
+
+embedding:
+  provider: sentence_transformers_local
+  device: auto
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  batch_size: 32
+  normalize_embeddings: true
+  subchunk_tokens: 200
+  subchunk_overlap_tokens: 40
+
 retrieval:
-  dense_top_k: 10
-  bm25_top_k: 10
-  fusion_strategy: reciprocal_rank_fusion_placeholder
-  final_context_k: 6
+  retrieval_subchunk_top_k: 24
+  retrieval_top_k: 8
+  weak_score_threshold: 0.20
+
+prompting:
+  prompt_version: v2_dense_grounded
+  prompt_top_n: 4
+  prompt_chunk_max_chars: 1800
+  prompt_context_max_chars: 7200
+
+provider:
+  default_name: openai
+  openai_model: gpt-4.1-mini
 
 reranking:
-  enabled: true
-  model_name: cross_encoder_placeholder
-  rerank_top_k: 20
+  enabled: false
+  model_name: null
+  rerank_top_k: null
 
 grounding:
   require_citations: true
-  abstain_threshold: null
+  invalid_response_policy: invalid_grounding

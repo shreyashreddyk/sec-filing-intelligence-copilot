@@ -87,6 +87,22 @@ source .venv/bin/activate
 .venv/bin/python -m pytest
 ```
 
+Device note:
+- the project is validated locally on macOS x86_64 without a GPU
+- the embedding runtime is now device-aware and defaults to `auto`
+- `auto` resolves to `cuda` when CUDA is available, then `mps` when Apple Metal is available, and finally `cpu`
+- on this local machine, `auto` resolves to `cpu`
+- `numpy` stays on the latest 1.26.x line because the newest PyTorch wheel available for this platform is `2.2.2`, and that wheel emits a NumPy 2.x ABI warning
+- for a future Linux GPU deployment, install a CUDA-enabled PyTorch build for the container image; the runtime code will use it when `embedding.device=auto` or `embedding.device=cuda`
+
+Walkthrough command:
+
+```bash
+make walkthrough-v2
+```
+
+That script prints the current environment, selected chunks, embedding subchunks, a sample embedding vector, retrieval results, prompt metadata, and a mock grounded answer.
+
 ## Environment and SEC access
 
 When ingestion is implemented, SEC requests should:

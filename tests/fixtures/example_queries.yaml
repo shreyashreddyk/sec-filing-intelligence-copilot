@@ -1,0 +1,20 @@
+- query: "What does NVIDIA say about AI infrastructure and accelerated computing?"
+  filters:
+    tickers: ["NVDA"]
+    form_types: ["10-K"]
+  purpose: "Business-section semantic retrieval over the local NVDA annual filing."
+  expected_section_or_filing: "Business"
+
+- query: "What export control risks does NVIDIA describe?"
+  filters:
+    tickers: ["NVDA"]
+    form_types: ["10-K"]
+  purpose: "Risk-factor retrieval focused on export controls and licensing restrictions."
+  expected_section_or_filing: "Risk Factors"
+
+- query: "What responsible AI or sustainability concerns appear in NVIDIA's filing?"
+  filters:
+    tickers: ["NVDA"]
+    form_types: ["10-K"]
+  purpose: "Risk-factor retrieval for governance, sustainability, and AI responsibility language."
+  expected_section_or_filing: "Risk Factors"

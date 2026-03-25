@@ -30,3 +30,19 @@ ingest-sample:
 .PHONY: test-live
 test-live:
 	.venv/bin/python -m pytest -m live_sec
+
+.PHONY: index
+index:
+	.venv/bin/python -m sec_copilot.retrieval.cli index
+
+.PHONY: retrieve
+retrieve:
+	.venv/bin/python -m sec_copilot.retrieval.cli retrieve --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --debug
+
+.PHONY: answer-mock
+answer-mock:
+	.venv/bin/python -m sec_copilot.retrieval.cli answer --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --provider mock --debug
+
+.PHONY: walkthrough-v2
+walkthrough-v2:
+	.venv/bin/python scripts/v2_cpu_walkthrough.py

@@ -1,10 +1,24 @@
 prompts:
-  answer_with_citations:
-    version: v0
-    description: Placeholder for grounded answer generation with strict citation IDs.
-  abstain_if_weak_support:
-    version: v0
-    description: Placeholder for abstention behavior when retrieval support is insufficient.
+  grounded_answer_baseline:
+    version: v2_dense_grounded
+    description: Baseline grounded answer generation over dense-retrieved SEC filing chunks.
+    system: |
+      You are a source-grounded SEC filing analyst.
+      Use only the retrieved context supplied by the application.
+      Return structured output with:
+      - answer_text: a concise grounded answer
+      - citation_chunk_ids: a flat list of parent chunk IDs that support the answer
+      - notes: optional brief note if useful
+      Never cite a chunk ID that is not present in the retrieved context.
+      If the context is weak, keep the answer narrow and only include claims directly supported by the context.
+    user: |
+      Question:
+      {question}
+
+      Retrieved SEC filing context:
+      {context_blocks}
+
+      Return only structured output for the required schema.
   comparative_analysis:
-    version: v0
-    description: Placeholder for cross-company and cross-period comparison prompts.
+    version: v1_placeholder
+    description: Reserved for later cross-company and cross-period comparison prompts after hybrid retrieval and reranking.

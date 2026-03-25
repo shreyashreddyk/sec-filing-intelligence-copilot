@@ -7,10 +7,14 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 
 def to_jsonable(value: Any) -> Any:
     """Recursively convert dataclasses into JSON-safe Python values."""
 
+    if isinstance(value, BaseModel):
+        return {key: to_jsonable(item) for key, item in value.model_dump(mode="json").items()}
     if is_dataclass(value):
         return {key: to_jsonable(item) for key, item in asdict(value).items()}
     if isinstance(value, dict):

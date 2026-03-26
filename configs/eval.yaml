@@ -1,0 +1,47 @@
+schema_version: sec_eval_config.v1
+dataset_path: tests/fixtures/eval/sec_filing_qa_gold.yaml
+corpus_path: tests/fixtures/eval_corpus
+default_subset: ci_smoke
+default_mode: full
+default_provider: reference
+default_score_backend: deterministic
+retrieval_ks:
+  - 1
+  - 2
+  - 4
+output_root: artifacts/evals
+thresholds:
+  blocking:
+    - name: retrieval_hit_rate_at_4
+      metric_path: retrieval.metrics_overall.values.hit_rate@4
+      operator: gte
+      value: 0.833
+    - name: retrieval_recall_at_4
+      metric_path: retrieval.metrics_overall.values.recall@4
+      operator: gte
+      value: 0.700
+    - name: answer_citation_validity_rate
+      metric_path: answer.metrics_overall.values.citation_validity_rate
+      operator: eq
+      value: 1.0
+    - name: answer_abstention_accuracy
+      metric_path: answer.metrics_overall.values.abstention_accuracy
+      operator: gte
+      value: 0.875
+  non_blocking:
+    - name: retrieval_mrr
+      metric_path: retrieval.metrics_overall.values.mrr
+      operator: gte
+      value: 0.600
+    - name: answer_context_precision_proxy
+      metric_path: answer.metrics_overall.values.context_precision_proxy
+      operator: gte
+      value: 0.600
+    - name: answer_response_relevancy_proxy
+      metric_path: answer.metrics_overall.values.response_relevancy_proxy
+      operator: gte
+      value: 0.700
+    - name: answer_faithfulness_proxy
+      metric_path: answer.metrics_overall.values.faithfulness_proxy
+      operator: gte
+      value: 0.700

@@ -102,7 +102,7 @@ class ProviderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     default_name: Literal["openai", "mock"] = "openai"
-    openai_model: str = Field(default="gpt-4.1-mini", min_length=1)
+    openai_model: str = Field(default="gpt-5-nano", min_length=1)
 
 
 class RerankingConfig(BaseModel):

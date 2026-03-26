@@ -43,6 +43,14 @@ retrieve:
 answer-mock:
 	.venv/bin/python -m sec_copilot.retrieval.cli answer --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --provider mock --debug
 
+.PHONY: eval-smoke
+eval-smoke:
+	.venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/ci_smoke_latest
+
+.PHONY: eval-full
+eval-full:
+	.venv/bin/python -m sec_copilot.eval.cli run --subset full --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/full_latest
+
 .PHONY: compare-v3
 compare-v3:
 	.venv/bin/python scripts/compare_retrieval_modes.py --include-generation --write-csv

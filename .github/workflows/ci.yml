@@ -23,3 +23,38 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+      - name: Run eval smoke subset
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts/evals/ci_smoke_ci
+          set +e
+          python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/ci_smoke_ci
+          status=$?
+          printf "%s" "$status" > artifacts/evals/ci_smoke_ci/exit_code.txt
+          exit 0
+
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-ci-smoke
+          if-no-files-found: warn
+          path: |
+            artifacts/evals/ci_smoke_ci/results.json
+            artifacts/evals/ci_smoke_ci/report.md
+            artifacts/evals/ci_smoke_ci/exit_code.txt
+
+      - name: Fail on eval regression
+        if: always()
+        run: |
+          if [ ! -f artifacts/evals/ci_smoke_ci/exit_code.txt ]; then
+            echo "Eval smoke exit code file was not generated."
+            exit 1
+          fi
+          status="$(cat artifacts/evals/ci_smoke_ci/exit_code.txt)"
+          if [ "$status" -ne 0 ]; then
+            echo "Eval smoke failed with exit code $status"
+            exit "$status"
+          fi

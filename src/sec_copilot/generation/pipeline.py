@@ -39,7 +39,15 @@ class GroundedAnswerPipeline:
         self.provider = provider
 
     def answer(self, request: QueryRequest) -> QueryResponse:
-        retrieval = self.retriever.retrieve(request)
+        response, _, _ = self.answer_with_trace(request)
+        return response
+
+    def answer_with_trace(
+        self,
+        request: QueryRequest,
+        retrieval=None,
+    ) -> tuple[QueryResponse, object, PromptAssemblyResult | None]:
+        retrieval = retrieval or self.retriever.retrieve(request)
         prompt: PromptAssemblyResult | None = None
 
         if retrieval.reason_code in {"filters_excluded_all_chunks", "no_hits"}:
@@ -48,7 +56,7 @@ class GroundedAnswerPipeline:
                 reason_code=retrieval.reason_code,
             )
             self._log_query(request, retrieval, response, prompt)
-            return response
+            return response, retrieval, prompt
 
         if not retrieval.reranker_applied and self.config.reranking.required_for_generation:
             response = self._abstained_response(
@@ -56,7 +64,7 @@ class GroundedAnswerPipeline:
                 reason_code="reranker_unavailable",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response
+            return response, retrieval, prompt
 
         top_rerank_score = retrieval.retrieved_chunks[0].rerank_score if retrieval.retrieved_chunks else None
         if top_rerank_score is None or top_rerank_score < self.config.abstention.weak_top_rerank_score_threshold:
@@ -65,7 +73,7 @@ class GroundedAnswerPipeline:
                 reason_code="weak_support",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response
+            return response, retrieval, prompt
 
         strong_support_count = sum(
             1
@@ -78,7 +86,7 @@ class GroundedAnswerPipeline:
                 reason_code="insufficient_supporting_chunks",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response
+            return response, retrieval, prompt
 
         prompt = self.prompt_builder.build(
             question=request.question,
@@ -94,7 +102,7 @@ class GroundedAnswerPipeline:
                 reason_code="model_abstained",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response
+            return response, retrieval, prompt
 
         citations = self._validate_and_build_citations(
             citation_chunk_ids=provider_answer.citation_chunk_ids,
@@ -107,7 +115,7 @@ class GroundedAnswerPipeline:
                 reason_code="invalid_citations",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response
+            return response, retrieval, prompt
 
         response = QueryResponse(
             answer=provider_answer.answer,
@@ -117,7 +125,7 @@ class GroundedAnswerPipeline:
             reason_code="ok",
         )
         self._log_query(request, retrieval, response, prompt)
-        return response
+        return response, retrieval, prompt
 
     def _validate_and_build_citations(
         self,

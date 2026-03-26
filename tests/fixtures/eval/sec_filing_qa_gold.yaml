@@ -1,0 +1,255 @@
+schema_version: sec_eval_dataset.v1
+dataset_name: sec_filing_qa_gold_v1
+description: >
+  Small tracked SEC filing QA eval set for deterministic offline retrieval and grounded-answer regression checks.
+examples:
+  - example_id: fact_nvda_h20_license
+    question: What H20 export license restrictions does NVIDIA describe in its FY2026 10-K?
+    category: fact_lookup
+    filters:
+      tickers: [NVDA]
+      form_types: [10-K]
+      filing_date_from: "2026-02-25"
+      filing_date_to: "2026-02-25"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0001045810_000104581026000021_s02_c0006
+    required_citation_chunk_ids:
+      - sec_0001045810_000104581026000021_s02_c0006
+    reference_answer: >
+      NVIDIA says the U.S. government required licenses for exports of H20 and similar chips to China,
+      which reduced demand and left the company with excess inventory and purchase obligations.
+    reference_key_points:
+      - The filing says H20 and similar chips shipped to China require export licenses.
+      - NVIDIA ties the restriction to reduced demand and excess inventory or purchase obligations.
+    tags: [full, ci_smoke]
+
+  - example_id: fact_amd_fabless_model
+    question: How does AMD describe its manufacturing model in the FY2024 10-K?
+    category: fact_lookup
+    filters:
+      tickers: [AMD]
+      form_types: [10-K]
+      filing_date_from: "2025-02-05"
+      filing_date_to: "2025-02-05"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0000002488_000000248825000012_s02_c0003
+    required_citation_chunk_ids:
+      - sec_0000002488_000000248825000012_s02_c0003
+    reference_answer: >
+      AMD describes itself as a fabless semiconductor company that depends on third-party foundries,
+      especially TSMC, along with outside assembly and test partners.
+    reference_key_points:
+      - AMD says it is fabless rather than internally manufacturing its wafers.
+      - AMD relies on third-party foundries and outsourced assembly or test partners.
+    tags: [full, ci_smoke]
+
+  - example_id: fact_intel_foundry_loss
+    question: What operating loss does Intel report for Intel Foundry in the FY2025 10-K?
+    category: fact_lookup
+    filters:
+      tickers: [INTC]
+      form_types: [10-K]
+      filing_date_from: "2026-01-23"
+      filing_date_to: "2026-01-23"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0000050863_000005086326000011_s07_c0009
+    required_citation_chunk_ids:
+      - sec_0000050863_000005086326000011_s07_c0009
+    reference_answer: >
+      Intel reports that Intel Foundry posted a $13.4 billion operating loss in FY2025
+      while it continued to invest in process technology and fab capacity.
+    reference_key_points:
+      - Intel Foundry operating loss is reported as $13.4 billion.
+      - The filing links the loss to continued investment in process technology and fabs.
+    tags: [full]
+
+  - example_id: compare_nvda_data_center_growth
+    question: How did NVIDIA's Data Center revenue change from FY2025 to FY2026?
+    category: cross_period_comparison
+    filters:
+      tickers: [NVDA]
+      form_types: [10-K]
+      filing_date_from: "2025-02-26"
+      filing_date_to: "2026-02-25"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0001045810_000104581025000023_s07_c0007
+      - sec_0001045810_000104581026000021_s07_c0008
+    required_citation_chunk_ids:
+      - sec_0001045810_000104581025000023_s07_c0007
+      - sec_0001045810_000104581026000021_s07_c0008
+    reference_answer: >
+      NVIDIA's Data Center revenue rose from $47.5 billion in FY2025 to $115.2 billion in FY2026,
+      with the later year driven by continued AI platform demand including Hopper and Blackwell systems.
+    reference_key_points:
+      - FY2025 Data Center revenue is $47.5 billion.
+      - FY2026 Data Center revenue is $115.2 billion.
+      - The filing attributes FY2026 growth to AI platform demand including Hopper and Blackwell.
+    tags: [full, ci_smoke]
+
+  - example_id: compare_amd_data_center_growth
+    question: How did AMD's Data Center segment revenue change from FY2024 to FY2025?
+    category: cross_period_comparison
+    filters:
+      tickers: [AMD]
+      form_types: [10-K]
+      filing_date_from: "2025-02-05"
+      filing_date_to: "2026-02-04"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0000002488_000000248825000012_s07_c0007
+      - sec_0000002488_000000248826000018_s07_c0006
+    required_citation_chunk_ids:
+      - sec_0000002488_000000248825000012_s07_c0007
+      - sec_0000002488_000000248826000018_s07_c0006
+    reference_answer: >
+      AMD's Data Center segment revenue increased from $6.5 billion in FY2024 to $12.6 billion in FY2025
+      as EPYC CPUs and Instinct accelerators drove stronger demand.
+    reference_key_points:
+      - FY2024 Data Center segment revenue is $6.5 billion.
+      - FY2025 Data Center segment revenue is $12.6 billion.
+      - EPYC and Instinct products are named as demand drivers.
+    tags: [full]
+
+  - example_id: compare_intel_foundry_loss
+    question: Did Intel Foundry's operating loss improve or worsen from FY2024 to FY2025?
+    category: cross_period_comparison
+    filters:
+      tickers: [INTC]
+      form_types: [10-K]
+      filing_date_from: "2025-01-31"
+      filing_date_to: "2026-01-23"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0000050863_000005086325000009_s07_c0008
+      - sec_0000050863_000005086326000011_s07_c0009
+    required_citation_chunk_ids:
+      - sec_0000050863_000005086325000009_s07_c0008
+      - sec_0000050863_000005086326000011_s07_c0009
+    reference_answer: >
+      Intel Foundry's operating loss worsened, increasing from $11.6 billion in FY2024
+      to $13.4 billion in FY2025 as Intel kept investing in process technology and fabs.
+    reference_key_points:
+      - FY2024 Intel Foundry operating loss is $11.6 billion.
+      - FY2025 Intel Foundry operating loss is $13.4 billion.
+      - The later-year loss reflects continued process and fab investment.
+    tags: [full, ci_smoke]
+
+  - example_id: synth_nvda_amd_ai_demand
+    question: Across NVIDIA and AMD, what products or demand drivers are highlighted for AI data center growth in these filings?
+    category: multi_document_synthesis
+    filters:
+      tickers: [NVDA, AMD]
+      form_types: [10-K]
+      filing_date_from: "2026-01-01"
+      filing_date_to: "2026-12-31"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0001045810_000104581026000021_s07_c0008
+      - sec_0000002488_000000248826000018_s02_c0004
+      - sec_0000002488_000000248826000018_s07_c0006
+    required_citation_chunk_ids:
+      - sec_0001045810_000104581026000021_s07_c0008
+      - sec_0000002488_000000248826000018_s07_c0006
+    reference_answer: >
+      NVIDIA points to Hopper and Blackwell demand behind its Data Center growth,
+      while AMD highlights EPYC CPUs and Instinct or MI300 accelerators as the main drivers of its data center expansion.
+    reference_key_points:
+      - NVIDIA cites Hopper and Blackwell demand for Data Center growth.
+      - AMD cites EPYC and Instinct or MI300 products for data center demand.
+    tags: [full, ci_smoke]
+
+  - example_id: synth_amd_intel_manufacturing_models
+    question: How do AMD and Intel describe their manufacturing approaches in these filings?
+    category: multi_document_synthesis
+    filters:
+      tickers: [AMD, INTC]
+      form_types: [10-K]
+      filing_date_from: "2025-01-01"
+      filing_date_to: "2025-12-31"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0000002488_000000248825000012_s02_c0003
+      - sec_0000050863_000005086325000009_s02_c0004
+    required_citation_chunk_ids:
+      - sec_0000002488_000000248825000012_s02_c0003
+      - sec_0000050863_000005086325000009_s02_c0004
+    reference_answer: >
+      AMD describes a fabless model that depends on third-party foundries and outsourced manufacturing partners,
+      while Intel emphasizes internal manufacturing and the expansion of its own foundry services.
+    reference_key_points:
+      - AMD is described as fabless and dependent on third-party foundries.
+      - Intel emphasizes internal manufacturing and foundry expansion.
+    tags: [full, ci_smoke]
+
+  - example_id: synth_three_company_ai_positions
+    question: Across NVIDIA, AMD, and Intel, which products are positioned around AI infrastructure or AI compute in this fixture corpus?
+    category: multi_document_synthesis
+    filters:
+      tickers: [NVDA, AMD, INTC]
+      form_types: [10-K]
+      filing_date_from: "2026-01-01"
+      filing_date_to: "2026-12-31"
+    expected_abstention: false
+    gold_chunk_ids:
+      - sec_0001045810_000104581026000021_s07_c0008
+      - sec_0000002488_000000248826000018_s02_c0004
+      - sec_0000050863_000005086326000011_s02_c0005
+    required_citation_chunk_ids:
+      - sec_0001045810_000104581026000021_s07_c0008
+      - sec_0000002488_000000248826000018_s02_c0004
+      - sec_0000050863_000005086326000011_s02_c0005
+    reference_answer: >
+      In this fixture corpus, NVIDIA emphasizes Hopper and Blackwell AI platforms,
+      AMD highlights EPYC CPUs and Instinct or MI300 accelerators,
+      and Intel points to Xeon, Gaudi, and AI PC products.
+    reference_key_points:
+      - NVIDIA names Hopper and Blackwell.
+      - AMD names EPYC and Instinct or MI300.
+      - Intel names Xeon, Gaudi, and AI PC products.
+    tags: [full]
+
+  - example_id: unanswerable_nvda_dividend_increase
+    question: What dividend increase did NVIDIA announce in FY2026?
+    category: unanswerable
+    filters:
+      tickers: [NVDA]
+      form_types: [10-K]
+      filing_date_from: "2026-02-25"
+      filing_date_to: "2026-02-25"
+    expected_abstention: true
+    gold_chunk_ids: []
+    required_citation_chunk_ids: []
+    reference_key_points: []
+    tags: [full, ci_smoke]
+
+  - example_id: unanswerable_amd_console_mix
+    question: What exact percentage of AMD's FY2025 revenue came from gaming consoles?
+    category: unanswerable
+    filters:
+      tickers: [AMD]
+      form_types: [10-K]
+      filing_date_from: "2026-02-04"
+      filing_date_to: "2026-02-04"
+    expected_abstention: true
+    gold_chunk_ids: []
+    required_citation_chunk_ids: []
+    reference_key_points: []
+    tags: [full, ci_smoke]
+
+  - example_id: unanswerable_intel_gaudi_2027
+    question: Did Intel say Gaudi 4 would launch in 2027?
+    category: unanswerable
+    filters:
+      tickers: [INTC]
+      form_types: [10-K]
+      filing_date_from: "2026-01-23"
+      filing_date_to: "2026-01-23"
+    expected_abstention: true
+    gold_chunk_ids: []
+    required_citation_chunk_ids: []
+    reference_key_points: []
+    tags: [full]

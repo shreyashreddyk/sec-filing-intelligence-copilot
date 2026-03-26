@@ -40,7 +40,7 @@ prompting:
 
 provider:
   default_name: openai
-  openai_model: gpt-4.1-mini
+  openai_model: gpt-5-nano
 
 reranking:
   enabled: true

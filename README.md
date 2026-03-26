@@ -171,6 +171,8 @@ make install-dev
 cp .env.example .env
 ```
 
+Edit `.env` before running the live workflow. Set `SEC_USER_AGENT` to your real name and contact email for SEC access. `HF_TOKEN` is optional and only needed for gated or private Hugging Face model downloads.
+
 ### 2. Start the backend
 
 ```bash
@@ -288,5 +290,5 @@ Some of the strongest production-oriented choices in this codebase are not just 
 - CI is wired to quality gates, not just tests. The workflow runs an eval smoke subset, uploads artifacts, and only then fails the job on regression so debugging evidence is still preserved.
 - The current tracked eval set is intentionally reproducible. The fixture corpus uses six annual filings across NVIDIA, AMD, and Intel with a 12-example gold set and an 8-example `ci_smoke` subset.
 - SEC ingestion is handled conservatively. Request behavior is centralized, a valid SEC user agent is required, and caching reduces unnecessary network traffic.
-- Runtime behavior is environment-aware. `.env` is loaded consistently, `HF_TOKEN` remains optional, and embedding device selection resolves automatically across `cuda`, `mps`, and `cpu`.
+- Runtime behavior is environment-aware. `.env` is loaded consistently across CLI, API, and UI entrypoints, `HF_TOKEN` remains optional, and embedding device selection resolves automatically across `cuda`, `mps`, and `cpu`.
 - The repo keeps retrieval, reranking, generation, serving, and evaluation as separate modules, which makes debugging, regression analysis, and future upgrades much easier than in a monolithic pipeline.

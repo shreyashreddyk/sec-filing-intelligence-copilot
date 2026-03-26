@@ -51,14 +51,10 @@ eval-smoke:
 eval-full:
 	.venv/bin/python -m sec_copilot.eval.cli run --subset full --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/full_latest
 
-.PHONY: compare-v3
-compare-v3:
-	.venv/bin/python scripts/compare_retrieval_modes.py --include-generation --write-csv
-
 .PHONY: serve-api
 serve-api:
 	.venv/bin/python -m uvicorn sec_copilot.api.app:app --reload
 
-.PHONY: walkthrough-v2
-walkthrough-v2:
-	.venv/bin/python scripts/v2_cpu_walkthrough.py
+.PHONY: serve-ui
+serve-ui:
+	SEC_COPILOT_UI_BACKEND_URL=http://127.0.0.1:8000 .venv/bin/python -m streamlit run src/sec_copilot/frontend/streamlit_app.py --server.port 8501

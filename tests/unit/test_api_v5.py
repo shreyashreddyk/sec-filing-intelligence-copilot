@@ -123,6 +123,7 @@ def test_service_starts_not_ready_and_query_returns_typed_503(tmp_path: Path) ->
 def test_ingest_bootstrap_updates_readiness_and_query_and_debug_endpoints(tmp_path: Path, monkeypatch) -> None:
     data_dir = tmp_path / "data"
     monkeypatch.setenv("SEC_USER_AGENT", "Shreyash Reddy shreyash@sec-copilot.dev")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr("sec_copilot.ingest.pipeline.SecClient", FakeSecClient)
 
     service = _build_service(tmp_path, data_dir=data_dir)

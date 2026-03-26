@@ -1,4 +1,4 @@
-"""FastAPI application for the SEC Filing Intelligence Copilot V5 backend."""
+"""FastAPI application for the SEC Filing Intelligence Copilot backend."""
 
 from __future__ import annotations
 
@@ -28,7 +28,13 @@ from sec_copilot.ingest.pipeline import IngestionPreflightError
 from sec_copilot.utils.logging import configure_logging, log_api_event
 
 
-def create_app(service: CopilotApiService | None = None) -> FastAPI:
+def create_app(
+    service: CopilotApiService | None = None,
+    *,
+    include_admin_routes: bool = True,
+    title: str = "SEC Filing Intelligence Copilot",
+    description: str = "Typed FastAPI backend for grounded SEC filing retrieval, query, ingestion, and evaluation.",
+) -> FastAPI:
     """Create the FastAPI app with injectable service state."""
 
     api_service = service or CopilotApiService()
@@ -41,9 +47,9 @@ def create_app(service: CopilotApiService | None = None) -> FastAPI:
         yield
 
     app = FastAPI(
-        title="SEC Filing Intelligence Copilot",
+        title=title,
         version=__version__,
-        description="Typed FastAPI backend for grounded SEC filing retrieval, query, ingestion, and evaluation.",
+        description=description,
         lifespan=lifespan,
     )
 
@@ -106,23 +112,25 @@ def create_app(service: CopilotApiService | None = None) -> FastAPI:
             return JSONResponse(status_code=409, content=result.model_dump(mode="json"))
         return result
 
-    @app.post("/ingest/run", response_model=IngestRunResponse)
-    def ingest_run(request: IngestRunRequest) -> IngestRunResponse:
-        try:
-            return api_service.run_ingest(request)
-        except IngestionPreflightError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if include_admin_routes:
 
-    @app.post("/eval/run", response_model=EvalRunResponse)
-    def eval_run(request: EvalRunRequest) -> EvalRunResponse:
-        try:
-            return api_service.run_eval(request)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        @app.post("/ingest/run", response_model=IngestRunResponse)
+        def ingest_run(request: IngestRunRequest) -> IngestRunResponse:
+            try:
+                return api_service.run_ingest(request)
+            except IngestionPreflightError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        @app.post("/eval/run", response_model=EvalRunResponse)
+        def eval_run(request: EvalRunRequest) -> EvalRunResponse:
+            try:
+                return api_service.run_eval(request)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app
 

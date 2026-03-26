@@ -10,7 +10,7 @@ from time import perf_counter
 from typing import Callable
 
 import chromadb
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from sec_copilot import __version__
 from sec_copilot.api.coverage import (
@@ -67,6 +67,7 @@ from sec_copilot.retrieval.retriever import DenseRetriever, HybridRetriever
 from sec_copilot.schemas.retrieval import QueryRequest
 from sec_copilot.utils.io import to_jsonable
 from sec_copilot.utils.logging import log_api_event
+from sec_copilot.utils.normalization import normalize_form_type
 
 
 EmbeddingAdapterFactory = Callable[[object], EmbeddingAdapter]
@@ -89,6 +90,20 @@ class ApiSettings(BaseModel):
     mock_fallback_when_openai_missing: bool = True
     default_annual_limit: int = Field(default=2, ge=0)
     default_quarterly_limit: int = Field(default=4, ge=0)
+    default_form_types: list[str] = Field(default_factory=lambda: ["10-K", "10-Q"])
+
+    @field_validator("default_form_types", mode="before")
+    @classmethod
+    def _normalize_default_form_types(cls, value: object) -> list[str]:
+        if value is None:
+            return ["10-K", "10-Q"]
+        if isinstance(value, str):
+            value = [value]
+        normalized = [normalize_form_type(str(item)) for item in value]
+        deduped = list(dict.fromkeys(normalized))
+        if not deduped:
+            raise ValueError("default_form_types must contain at least one form type")
+        return deduped
 
 
 @dataclass(frozen=True)
@@ -585,7 +600,7 @@ class CopilotApiService:
         default_companies = [company.ticker for company in universe.enabled_companies()]
         return TargetScope(
             companies=list(companies or default_companies),
-            form_types=list(form_types or ["10-K", "10-Q"]),
+            form_types=list(form_types or self.settings.default_form_types),
             annual_limit=self.settings.default_annual_limit if annual_limit is None else annual_limit,
             quarterly_limit=self.settings.default_quarterly_limit if quarterly_limit is None else quarterly_limit,
         )

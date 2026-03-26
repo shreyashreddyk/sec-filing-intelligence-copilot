@@ -129,6 +129,25 @@ CI coverage is visible in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 - uploads eval artifacts
 - fails the workflow if the eval smoke run regresses
 
+## Benchmark Highlights
+
+Latest validated local deterministic smoke run in this workspace:
+
+- command: `make eval-smoke`
+- local output: `artifacts/evals/ci_smoke_latest/report.md`
+- retrieval: `hit_rate@4=1.0`, `recall@4=1.0`, `mrr=0.9167`
+- answer safety: `citation_validity_rate=1.0`, `abstention_accuracy=1.0`
+- answer-quality proxies: `context_precision_proxy=0.6146`, `response_relevancy_proxy=0.7230`, `faithfulness_proxy=0.6931`
+
+Optional richer local OpenAI plus Ragas run:
+
+- command: `.venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider openai --score-backend both --output-dir artifacts/evals/ci_smoke_openai_ragas_retry --fail-on-thresholds false`
+- local output: `artifacts/evals/ci_smoke_openai_ragas_retry/report.md`
+- default Ragas evaluator: `gpt-4.1-mini`
+- Ragas: `ragas_faithfulness=0.9667`, `ragas_response_relevancy=0.7841`, `ragas_context_precision=0.5556`
+
+These numbers are local validation results tied to the commands above, the tracked gold set, and the current workspace outputs.
+
 ## Artifacts In This Repo
 
 This repository includes concrete implementation evidence beyond source code:

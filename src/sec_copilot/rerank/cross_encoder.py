@@ -64,7 +64,13 @@ class CrossEncoderReranker:
             for index, (candidate, score) in enumerate(
                 sorted(
                     zip(candidates, raw_scores, strict=True),
-                    key=lambda item: (-_sigmoid(float(item[1])), item[0].chunk_id),
+                    key=lambda item: (
+                        -_sigmoid(float(item[1])),
+                        -(item[0].rrf_score or 0.0),
+                        item[0].dense_rank or 10_000,
+                        item[0].bm25_rank or 10_000,
+                        item[0].chunk_id,
+                    ),
                 )
             )
         ]

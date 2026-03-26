@@ -120,7 +120,13 @@ class TokenOverlapReranker:
 
         ordered = sorted(
             rescored,
-            key=lambda chunk: (-(chunk.rerank_score or 0.0), chunk.chunk_id),
+            key=lambda chunk: (
+                -(chunk.rerank_score or 0.0),
+                -(chunk.rrf_score or 0.0),
+                chunk.dense_rank or 10_000,
+                chunk.bm25_rank or 10_000,
+                chunk.chunk_id,
+            ),
         )
         return tuple(
             chunk.model_copy(update={"rerank_rank": index + 1})

@@ -7,6 +7,8 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from sec_copilot.ingest.constants import TARGET_FORMS
 from sec_copilot.ingest.pipeline import IngestionConfig, IngestionPreflightError, run_ingestion
 
@@ -14,6 +16,7 @@ from sec_copilot.ingest.pipeline import IngestionConfig, IngestionPreflightError
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
 
+    load_dotenv()
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command != "run":

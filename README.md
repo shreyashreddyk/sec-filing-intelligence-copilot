@@ -6,6 +6,8 @@
 ![CI](https://img.shields.io/badge/ci-GitHub%20Actions-2088FF)
 ![RAG Evaluation](https://img.shields.io/badge/focus-RAG%20Evaluation-6A5ACD)
 
+[![Watch Demo](https://img.shields.io/badge/demo-Watch%20YouTube%20Demo-red?logo=youtube&logoColor=white)](https://youtu.be/5gisz5Mcxpg)
+
 Production-oriented RAG system for SEC filings that ingests live 10-K and 10-Q reports, retrieves evidence with hybrid search, reranks results, and returns grounded answers with explicit citations.
 
 This project is designed to show recruiter-relevant engineering signals: modular AI system design, typed API contracts, evidence-first answer generation, evaluation discipline, and CI-visible regression checks.

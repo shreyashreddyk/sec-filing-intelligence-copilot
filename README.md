@@ -1,37 +1,41 @@
 # SEC Filing Intelligence Copilot
 
-A source-grounded SEC filing RAG system with live corpus bootstrap, explicit citations, evidence-first answers, and developer-grade offline evaluation.
+![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)
+![Streamlit](https://img.shields.io/badge/ui-Streamlit-FF4B4B)
+![CI](https://img.shields.io/badge/ci-GitHub%20Actions-2088FF)
+![RAG Evaluation](https://img.shields.io/badge/focus-RAG%20Evaluation-6A5ACD)
 
-## What This Proves
+Production-oriented RAG system for SEC filings that ingests live 10-K and 10-Q reports, retrieves evidence with hybrid search, reranks results, and returns grounded answers with explicit citations.
 
-- modular production-style RAG design across ingestion, retrieval, reranking, generation, eval, and serving
-- a real local app flow: bootstrap filings, query them, and inspect evidence instead of relying on a static demo
-- typed FastAPI contracts with explicit readiness and coverage semantics
-- honest failure handling for abstention, missing coverage, backend readiness, and contract drift
-- reproducible developer evals over a gold set with deterministic and optional Ragas-backed scoring
+This project is designed to show recruiter-relevant engineering signals: modular AI system design, typed API contracts, evidence-first answer generation, evaluation discipline, and CI-visible regression checks.
 
-## Live App
+## Overview
 
-The portfolio-facing path is now one backend plus one UI:
+SEC filings are long, dense, and difficult to compare quickly. This system turns them into a queryable, source-grounded research workflow for a focused semiconductor company universe:
 
-- start `serve-api`
-- start `serve-ui`
-- bootstrap a lean five-company corpus from the UI with `1x10-K + 1x10-Q`
-- ask a question and inspect the answer, citations, and retrieved evidence chunks
+- NVIDIA
+- AMD
+- Intel
+- Broadcom
+- Qualcomm
 
-The UI is intentionally thin. It calls only:
+The application supports live corpus bootstrap from SEC EDGAR, section-aware processing, hybrid retrieval, reranking, grounded answer generation, and offline evaluation with tracked artifacts.
 
-- `GET /health`
-- `GET /build-info`
-- `POST /ingest/run`
-- `POST /query`
-- `POST /retrieve/debug`
+## Why This Project Stands Out
 
-If `OPENAI_API_KEY` is missing, the backend falls back to the mock provider and the UI labels that explicitly. The evidence and citations still come from the live indexed corpus.
+- Real ingestion pipeline instead of a static demo corpus only
+- Hybrid retrieval stack combining dense search and BM25-style lexical matching
+- Cross-encoder reranking before answer generation
+- Citation-enforced answers tied back to real retrieved chunks
+- Explicit abstention behavior when support is weak or coverage is missing
+- Typed FastAPI backend with health, readiness, coverage, ingest, retrieval, query, and eval surfaces
+- Reproducible evaluation artifacts stored under `artifacts/`
+- CI workflow that runs tests, executes an eval smoke subset, uploads eval outputs, and fails on regression
 
-See [docs/08_live_app_walkthrough.md](docs/08_live_app_walkthrough.md) for the walkthrough script and recording checklist.
+## System Architecture
 
-## Architecture At A Glance
+The system is separated into ingestion, processing, retrieval, reranking, generation, serving, and evaluation so each layer stays inspectable and testable.
 
 ```mermaid
 flowchart LR
@@ -55,151 +59,217 @@ flowchart LR
     GEN --> DATA
 
     EVAL[Eval CLI] -.uses.-> FIXTURE[(tests/fixtures/eval_corpus)]
-    EVAL -.writes local outputs.-> EVA[(artifacts/evals)]
+    EVAL -.writes outputs.-> EVA[(artifacts/evals)]
 ```
 
-The Mermaid source is in [docs/architecture_v6_live.mmd](docs/architecture_v6_live.mmd).
+## Tech Stack
+
+- Language: Python 3.12
+- Backend: FastAPI, Uvicorn, Pydantic
+- Frontend: Streamlit
+- Vector store: Chroma
+- Embeddings and reranking: Sentence Transformers, CrossEncoder
+- LLM provider integration: OpenAI with mock fallback
+- Parsing and ingestion: Requests, BeautifulSoup4
+- Evaluation: custom deterministic metrics plus optional Ragas
+- Testing and CI: Pytest, GitHub Actions
+
+## Production-Oriented Features
+
+### API surface
+
+The backend exposes typed endpoints for both user-facing and operational workflows:
+
+- `GET /health`
+- `GET /build-info`
+- `POST /ingest/run`
+- `POST /query`
+- `POST /retrieve/debug`
+- `POST /eval/run`
+
+### Retrieval and answer pipeline
+
+- Live filing ingestion from SEC EDGAR with configurable company and form scope
+- Chunked processed corpus persisted locally for indexing and retrieval
+- Hybrid retrieval using dense vectors and lexical retrieval
+- Cross-encoder reranking for higher-quality evidence selection
+- Grounded answer pipeline that returns citations mapped to retrieved chunks
+- Coverage-aware behavior for missing corpus scope or stale index state
+
+### Reliability and engineering discipline
+
+- Typed request and response models across the API layer
+- Health and build-info endpoints for operational visibility
+- Readiness and coverage checks before query execution
+- Mock-provider fallback when `OPENAI_API_KEY` is unavailable
+- Unit and integration tests covering ingestion, retrieval, API contracts, prompts, evaluation, and frontend helpers
+
+## Evaluation And Validation
+
+Latest validated workspace-local deterministic smoke run:
+
+- Command: `make eval-smoke`
+- Report: `artifacts/evals/ci_smoke_latest/report.md`
+- Results: `artifacts/evals/ci_smoke_latest/results.json`
+- Retrieval `hit_rate@4`: `1.0`
+- Retrieval `recall@4`: `1.0`
+- Retrieval `mrr`: `0.9167`
+- Citation validity rate: `1.0`
+- Abstention accuracy: `1.0`
+
+These metrics come from the checked-in eval artifacts produced by the current workspace and reflect the existing gold-set smoke subset, not a hand-written claim.
+
+Optional richer local evaluation is also supported through the OpenAI + Ragas path, with outputs already present under `artifacts/evals/ci_smoke_openai_ragas_latest/` and `artifacts/evals/ci_smoke_openai_ragas_retry/`.
+
+CI coverage is visible in [`.github/workflows/ci.yml`](.github/workflows/ci.yml), where the pipeline:
+
+- installs the package
+- runs `pytest`
+- runs the eval smoke subset
+- uploads eval artifacts
+- fails the workflow if the eval smoke run regresses
+
+## Artifacts In This Repo
+
+This repository includes concrete implementation evidence beyond source code:
+
+- Eval report: [`artifacts/evals/ci_smoke_latest/report.md`](artifacts/evals/ci_smoke_latest/report.md)
+- Eval results JSON: [`artifacts/evals/ci_smoke_latest/results.json`](artifacts/evals/ci_smoke_latest/results.json)
+- Indexed coverage snapshot: [`artifacts/chroma/sec_semis_v1_hybrid_v3.coverage.json`](artifacts/chroma/sec_semis_v1_hybrid_v3.coverage.json)
+- CI workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- Gold eval dataset and fixtures under [`tests/fixtures`](tests/fixtures)
+
+The current indexed coverage artifact shows a fresh local index over the five-company universe with `10` documents and `1611` chunks across `10-K` and `10-Q` filings.
 
 ## Quickstart
 
-### 1. Local setup
+### 1. Set up the environment
 
 ```bash
 make venv
 source .venv/bin/activate
 make install-dev
-```
-
-Optional local configuration:
-
-```bash
 cp .env.example .env
 ```
 
-The backend and Streamlit UI now load `.env` automatically at startup. `HF_TOKEN` is optional and is only needed when your embedding or reranking model access requires Hugging Face Hub authentication.
-
-### 2. Run the app
-
-Terminal 1:
+### 2. Start the backend
 
 ```bash
 make serve-api
 ```
 
-Terminal 2:
+### 3. Start the UI
 
 ```bash
 make serve-ui
 ```
 
-Open the Streamlit URL shown in the terminal, usually `http://127.0.0.1:8501`.
+Open the local Streamlit URL shown in the terminal, usually `http://127.0.0.1:8501`.
 
-The UI uses longer operation-specific backend timeouts by default:
+### 4. Bootstrap the corpus
 
-- status calls: `10s`
-- query calls: `180s`
-- retrieval debug calls: `180s`
-- ingest calls: `900s`
+Use the UI ingest flow or run the CLI:
 
-Override them with the `SEC_COPILOT_UI_*_TIMEOUT_SECONDS` variables from `.env.example` if your local machine or network needs different values.
+```bash
+make ingest
+```
 
-### 3. Bootstrap the live corpus
+For a smaller sample:
 
-Use the UI bootstrap panel with the default preset:
+```bash
+make ingest-sample
+```
 
-- all five companies from `configs/companies.yaml`
-- form types: `10-K`, `10-Q`
-- annual limit: `1`
-- quarterly limit: `1`
-- index mode: `rebuild`
+### 5. Ask a first question
 
-If the backend was not started with `SEC_USER_AGENT`, paste a valid SEC user agent into the UI field before running ingest.
-
-### 4. Run a first query
-
-Recommended starter query:
+Recommended starter question:
 
 ```text
 What export control risks does NVIDIA describe?
 ```
 
-Expected visible output:
-
-- answer block
-- citation cards with filing metadata and SEC links
-- retrieved evidence chunks
-- optional retrieval-debug panel
-
-## Developer Eval Flow
-
-The evaluation path is intentionally separate from the live application.
-
-Deterministic smoke eval:
+Useful validation commands:
 
 ```bash
-make eval-smoke
-```
-
-Optional richer local OpenAI plus Ragas run:
-
-```bash
-.venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider openai --score-backend both --output-dir artifacts/evals/ci_smoke_openai_ragas_retry --fail-on-thresholds false
-```
-
-The richer Ragas path uses a dedicated evaluator configuration from `configs/eval.yaml`.
-It is intentionally decoupled from the app's answer-generation model so local grading can
-use a more stable structured-output evaluator default such as `gpt-4.1-mini`.
-
-Eval outputs are reproducible local artifacts under `artifacts/evals/`. They are not treated as committed repo assets.
-
-## Benchmark Highlights
-
-Latest validated local deterministic smoke run in this workspace:
-
-- command: `make eval-smoke`
-- local output: `artifacts/evals/ci_smoke_latest/report.md`
-- retrieval: `hit_rate@4=1.0`, `recall@4=1.0`, `mrr=0.9167`
-- answer safety: `citation_validity_rate=1.0`, `abstention_accuracy=1.0`
-- answer-quality proxies: `context_precision_proxy=0.6146`, `response_relevancy_proxy=0.7230`, `faithfulness_proxy=0.6931`
-
-Optional richer local OpenAI plus Ragas run:
-
-- command: `.venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider openai --score-backend both --output-dir artifacts/evals/ci_smoke_openai_ragas_retry --fail-on-thresholds false`
-- local output: `artifacts/evals/ci_smoke_openai_ragas_retry/report.md`
-- default Ragas evaluator: `gpt-4.1-mini`
-- Ragas: `ragas_faithfulness=0.9667`, `ragas_response_relevancy=0.7841`, `ragas_context_precision=0.5556`
-
-These numbers are local validation results tied to the commands above, the tracked gold set, and the current workspace outputs.
-
-## Known Limitations
-
-- first-run bootstrap depends on live SEC availability and takes time
-- without `OPENAI_API_KEY`, answer generation uses the mock fallback
-- admin and query workflows are still synchronous, so the UI now waits longer instead of using background job polling
-- eval outputs are local artifacts and the eval fixture corpus is narrower than the live five-company universe
-- 8-K support is not implemented yet
-
-## Repository Guide
-
-```text
-configs/              Retrieval, prompts, company universe, and eval config
-docs/                 Design notes, decision logs, API contracts, walkthroughs, progress
-src/sec_copilot/      Ingest, retrieval, rerank, generation, API, frontend helpers
-tests/                Unit and integration coverage, gold set, fixture corpora
-```
-
-Key docs:
-
-- [docs/01_system_design.md](docs/01_system_design.md)
-- [docs/04_eval_plan.md](docs/04_eval_plan.md)
-- [docs/05_failure_cases.md](docs/05_failure_cases.md)
-- [docs/06_api_contracts.md](docs/06_api_contracts.md)
-- [docs/08_live_app_walkthrough.md](docs/08_live_app_walkthrough.md)
-
-## Validation Commands
-
-```bash
-.venv/bin/python -m pytest tests/unit/test_frontend_client_v6.py tests/unit/test_frontend_contracts_v6.py tests/unit/test_frontend_helpers_v6.py tests/unit/test_api_v5.py -q
 make eval-smoke
 make test
 ```
+
+## Repository Structure
+
+```text
+artifacts/            Eval outputs, index metadata, and local retrieval artifacts
+configs/              Company universe, retrieval settings, prompts, and eval config
+data/                 Downloaded and processed filing data
+src/sec_copilot/      Ingestion, retrieval, reranking, generation, API, and frontend code
+tests/                Unit tests, integration tests, fixtures, and gold eval data
+Makefile              Common local development and validation commands
+```
+
+## Current Limitations / Next Improvements
+
+- Filing scope is currently focused on `10-K` and `10-Q`; `8-K` support is not implemented yet
+- The primary demo flow is local-first rather than deployed as a public hosted application
+- Ingest and query operations are synchronous today rather than background-job driven
+- The evaluation corpus is intentionally smaller than the full live research surface
+- The current company universe is focused on one sector to keep retrieval quality and evaluation tractable
+
+## Resume-Relevant Takeaways
+
+A hiring manager reviewing this project should be able to see:
+
+- clear separation between ingestion, retrieval, reranking, generation, serving, and evaluation
+- grounded-answer behavior instead of generic LLM summarization
+- measurable retrieval and answer-quality validation
+- CI integration that treats evaluation as part of engineering quality
+- thoughtful attention to typed interfaces, artifact visibility, and reproducibility
+
+## Full Package Surface
+
+Core runtime dependencies currently used in this repository:
+
+- `beautifulsoup4` for SEC filing parsing
+- `chromadb` for local vector storage and retrieval indexing
+- `fastapi` for the typed backend API
+- `numpy` for numeric and metric utilities
+- `openai` for live answer generation and optional richer eval scoring
+- `pydantic` for typed request, response, and artifact contracts
+- `PyYAML` for company, retrieval, prompt, and eval configuration loading
+- `python-dotenv` for local environment loading across CLI, API, and UI entrypoints
+- `requests` for SEC EDGAR ingestion and HTTP access
+- `sentence-transformers` for embeddings and cross-encoder reranking
+- `streamlit` for the local portfolio UI
+- `tiktoken` for token-aware chunking and prompt packing behavior
+- `torch` for local model execution
+- `transformers` for the underlying model stack
+- `uvicorn` for serving the FastAPI application
+
+Development and validation dependencies:
+
+- `pytest` for unit and integration coverage
+- `httpx` for API and contract-oriented tests
+
+Optional evaluation dependencies:
+
+- `ragas` for richer answer-quality evaluation
+- `langchain-openai` for the optional Ragas-backed evaluator path
+
+Build system dependencies:
+
+- `setuptools`
+- `wheel`
+
+## Additional Engineering Signals
+
+Some of the strongest production-oriented choices in this codebase are not just the model stack, but the operational and evaluation details around it:
+
+- Citation traceability is preserved end to end. The system keeps stable `document_id` and `chunk_id` identifiers so answers can be traced back to real filing chunks instead of loose text snippets.
+- The retrieval stack separates public citation units from embedding-only subchunks. That lets the index optimize retrieval quality without losing human-readable evidence boundaries.
+- The service distinguishes readiness from coverage. A backend can be healthy but still correctly refuse a query if the requested ticker, form type, or filing-date scope is not indexed.
+- Unsupported answers fail closed. Invalid citations, weak evidence, no hits, missing coverage, and reranker unavailability all map to explicit failure semantics instead of silently returning a fluent but weak answer.
+- Evaluation includes both answerable and unanswerable examples. The tracked fixture dataset is designed to test fact lookup, cross-period comparison, multi-document synthesis, and abstention behavior.
+- CI is wired to quality gates, not just tests. The workflow runs an eval smoke subset, uploads artifacts, and only then fails the job on regression so debugging evidence is still preserved.
+- The current tracked eval set is intentionally reproducible. The fixture corpus uses six annual filings across NVIDIA, AMD, and Intel with a 12-example gold set and an 8-example `ci_smoke` subset.
+- SEC ingestion is handled conservatively. Request behavior is centralized, a valid SEC user agent is required, and caching reduces unnecessary network traffic.
+- Runtime behavior is environment-aware. `.env` is loaded consistently, `HF_TOKEN` remains optional, and embedding device selection resolves automatically across `cuda`, `mps`, and `cpu`.
+- The repo keeps retrieval, reranking, generation, serving, and evaluation as separate modules, which makes debugging, regression analysis, and future upgrades much easier than in a monolithic pipeline.

@@ -9,6 +9,7 @@ from typing import Protocol
 from sec_copilot.config.retrieval import RerankingConfig
 from sec_copilot.retrieval.embedding import resolve_embedding_device
 from sec_copilot.schemas.retrieval import RetrievedChunk
+from sec_copilot.utils.huggingface import resolve_huggingface_token
 
 
 class Reranker(Protocol):
@@ -90,7 +91,11 @@ class CrossEncoderReranker:
             raise RerankerUnavailableError(f"Failed to import CrossEncoder runtime: {exc}") from exc
 
         try:
-            self._model = CrossEncoder(self.config.model_name, device=self.resolved_device)
+            self._model = CrossEncoder(
+                self.config.model_name,
+                device=self.resolved_device,
+                token=resolve_huggingface_token(),
+            )
         except Exception as exc:  # pragma: no cover - depends on model availability
             raise RerankerUnavailableError(f"Failed to load cross-encoder model {self.config.model_name!r}: {exc}") from exc
         return self._model

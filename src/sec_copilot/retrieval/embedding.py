@@ -8,6 +8,7 @@ from typing import Protocol, Sequence
 
 from sec_copilot.config.retrieval import EmbeddingConfig
 from sec_copilot.schemas.ingestion import ChunkRecord
+from sec_copilot.utils.huggingface import resolve_huggingface_token
 
 
 @dataclass(frozen=True)
@@ -73,8 +74,17 @@ class SentenceTransformerEmbeddingAdapter:
         self.config = config
         self.requested_device = config.device
         self.resolved_device = resolve_embedding_device(config.device)
-        self.model = SentenceTransformer(config.model_name, device=self.resolved_device)
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name, use_fast=True)
+        huggingface_token = resolve_huggingface_token()
+        self.model = SentenceTransformer(
+            config.model_name,
+            device=self.resolved_device,
+            token=huggingface_token,
+        )
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.model_name,
+            use_fast=True,
+            token=huggingface_token,
+        )
         self.model_name = config.model_name
         self.model_revision = self.tokenizer.init_kwargs.get("revision")
         self.max_seq_length = getattr(self.model, "max_seq_length", None)

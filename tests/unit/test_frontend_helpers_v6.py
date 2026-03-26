@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from sec_copilot.api.models import BuildInfoResponse
 from sec_copilot.frontend.presenters import (
     build_ingest_request,
@@ -9,6 +11,7 @@ from sec_copilot.frontend.presenters import (
     configured_company_tickers,
     resolve_scope_options,
 )
+from sec_copilot.frontend.runtime import FrontendTimeouts, load_frontend_timeouts_from_env
 from sec_copilot.frontend.starter_queries import STARTER_QUERIES
 
 
@@ -161,3 +164,33 @@ def test_starter_queries_match_live_app_defaults() -> None:
     assert "What export control risks does NVIDIA describe?" in questions
     assert "What does NVIDIA say about AI infrastructure and accelerated computing?" in questions
     assert "What does AMD say about supply chain risk?" in questions
+
+
+def test_load_frontend_timeouts_from_env_uses_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("SEC_COPILOT_UI_STATUS_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_UI_RETRIEVE_DEBUG_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_UI_INGEST_TIMEOUT_SECONDS", raising=False)
+
+    assert load_frontend_timeouts_from_env() == FrontendTimeouts()
+
+
+def test_load_frontend_timeouts_from_env_reads_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("SEC_COPILOT_UI_STATUS_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS", "210")
+    monkeypatch.setenv("SEC_COPILOT_UI_RETRIEVE_DEBUG_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("SEC_COPILOT_UI_INGEST_TIMEOUT_SECONDS", "1200")
+
+    assert load_frontend_timeouts_from_env() == FrontendTimeouts(
+        status_seconds=12.0,
+        query_seconds=210.0,
+        retrieve_debug_seconds=240.0,
+        ingest_seconds=1200.0,
+    )
+
+
+def test_load_frontend_timeouts_from_env_rejects_non_positive_values(monkeypatch) -> None:
+    monkeypatch.setenv("SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(ValueError, match="SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS"):
+        load_frontend_timeouts_from_env()

@@ -70,6 +70,14 @@ source .venv/bin/activate
 make install-dev
 ```
 
+Optional local configuration:
+
+```bash
+cp .env.example .env
+```
+
+The backend and Streamlit UI now load `.env` automatically at startup. `HF_TOKEN` is optional and is only needed when your embedding or reranking model access requires Hugging Face Hub authentication.
+
 ### 2. Run the app
 
 Terminal 1:
@@ -85,6 +93,15 @@ make serve-ui
 ```
 
 Open the Streamlit URL shown in the terminal, usually `http://127.0.0.1:8501`.
+
+The UI uses longer operation-specific backend timeouts by default:
+
+- status calls: `10s`
+- query calls: `180s`
+- retrieval debug calls: `180s`
+- ingest calls: `900s`
+
+Override them with the `SEC_COPILOT_UI_*_TIMEOUT_SECONDS` variables from `.env.example` if your local machine or network needs different values.
 
 ### 3. Bootstrap the live corpus
 
@@ -158,9 +175,9 @@ These numbers are local validation results tied to the commands above, the track
 
 - first-run bootstrap depends on live SEC availability and takes time
 - without `OPENAI_API_KEY`, answer generation uses the mock fallback
+- admin and query workflows are still synchronous, so the UI now waits longer instead of using background job polling
 - eval outputs are local artifacts and the eval fixture corpus is narrower than the live five-company universe
 - 8-K support is not implemented yet
-- admin workflows remain synchronous
 
 ## Repository Guide
 

@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
 from sec_copilot.api.models import (
     BuildInfoResponse,
@@ -24,8 +25,10 @@ from sec_copilot.frontend.presenters import (
     resolve_scope_options,
     safe_json,
 )
+from sec_copilot.frontend.runtime import load_frontend_timeouts_from_env
 from sec_copilot.frontend.starter_queries import STARTER_QUERIES, starter_queries_by_label
 
+load_dotenv()
 
 DEFAULT_BACKEND_URL = os.getenv("SEC_COPILOT_UI_BACKEND_URL", "http://127.0.0.1:8000")
 DEFAULT_COMPANIES_CONFIG_PATH = Path("configs/companies.yaml")
@@ -40,6 +43,12 @@ def main() -> None:
         page_icon=":material/description:",
         layout="wide",
     )
+    try:
+        timeouts = load_frontend_timeouts_from_env()
+    except ValueError as exc:
+        st.title("SEC Filing Intelligence Copilot")
+        st.error(str(exc))
+        return
     _init_session_state()
 
     st.title("SEC Filing Intelligence Copilot")
@@ -49,7 +58,13 @@ def main() -> None:
     )
 
     backend_url = _render_sidebar()
-    client = ApiClient(backend_url)
+    client = ApiClient(
+        backend_url,
+        status_timeout_seconds=timeouts.status_seconds,
+        query_timeout_seconds=timeouts.query_seconds,
+        retrieve_debug_timeout_seconds=timeouts.retrieve_debug_seconds,
+        ingest_timeout_seconds=timeouts.ingest_seconds,
+    )
     health_result = client.health()
     build_info_result = client.build_info()
 

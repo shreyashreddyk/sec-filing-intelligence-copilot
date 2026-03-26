@@ -57,11 +57,17 @@ class ApiClient:
         self,
         base_url: str,
         *,
-        timeout_seconds: float = 20.0,
+        status_timeout_seconds: float = 10.0,
+        query_timeout_seconds: float = 180.0,
+        retrieve_debug_timeout_seconds: float = 180.0,
+        ingest_timeout_seconds: float = 900.0,
         session: requests.Session | Any | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.timeout_seconds = timeout_seconds
+        self.status_timeout_seconds = status_timeout_seconds
+        self.query_timeout_seconds = query_timeout_seconds
+        self.retrieve_debug_timeout_seconds = retrieve_debug_timeout_seconds
+        self.ingest_timeout_seconds = ingest_timeout_seconds
         self.session = session or requests.Session()
 
     def health(self) -> HealthResponse | ApiNetworkError | ApiBackendError | ApiMalformedResponse:
@@ -86,6 +92,7 @@ class ApiClient:
             "/query",
             success_model=QuerySuccessResponse,
             json_body=request.model_dump(mode="json"),
+            timeout_seconds=self.query_timeout_seconds,
             error_models={
                 409: CoverageFailureResponse,
                 503: ServiceNotReadyResponse,
@@ -101,6 +108,7 @@ class ApiClient:
             "/ingest/run",
             success_model=IngestRunResponse,
             json_body=request.model_dump(mode="json"),
+            timeout_seconds=self.ingest_timeout_seconds,
         )
 
     def retrieve_debug(
@@ -119,6 +127,7 @@ class ApiClient:
             "/retrieve/debug",
             success_model=RetrievalDebugResponse,
             json_body=request.model_dump(mode="json"),
+            timeout_seconds=self.retrieve_debug_timeout_seconds,
             error_models={
                 409: CoverageFailureResponse,
                 503: ServiceNotReadyResponse,
@@ -132,11 +141,17 @@ class ApiClient:
         *,
         success_model: type[BaseModel],
         json_body: dict[str, Any] | None = None,
+        timeout_seconds: float | None = None,
         error_models: dict[int, type[BaseModel]] | None = None,
     ):
         url = f"{self.base_url}{endpoint}"
         try:
-            response = self.session.request(method, url, json=json_body, timeout=self.timeout_seconds)
+            response = self.session.request(
+                method,
+                url,
+                json=json_body,
+                timeout=self._resolve_timeout(endpoint, timeout_seconds),
+            )
         except requests.RequestException as exc:
             return ApiNetworkError(endpoint=endpoint, message=str(exc))
 
@@ -167,6 +182,13 @@ class ApiClient:
             message=message,
             raw_body=payload if payload is not None else raw_body,
         )
+
+    def _resolve_timeout(self, endpoint: str, timeout_seconds: float | None) -> float:
+        if timeout_seconds is not None:
+            return timeout_seconds
+        if endpoint in {"/health", "/build-info"}:
+            return self.status_timeout_seconds
+        return self.query_timeout_seconds
 
 
 def _decode_response_body(response) -> tuple[object | None, object | str | None]:

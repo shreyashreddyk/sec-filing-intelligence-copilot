@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
-from sec_copilot.config.retrieval import EmbeddingConfig
+from sec_copilot.config.retrieval import EmbeddingConfig, RerankingConfig
+from sec_copilot.rerank.cross_encoder import CrossEncoderReranker
 from sec_copilot.retrieval.embedding import DeviceResolutionError, TorchRuntimeCapabilities, resolve_embedding_device
 
 
@@ -44,3 +48,86 @@ def test_explicit_mps_requires_runtime_support() -> None:
 
     with pytest.raises(DeviceResolutionError):
         resolve_embedding_device("mps", capabilities=_caps(cuda_available=False, mps_available=False))
+
+
+def test_sentence_transformer_adapter_passes_hf_token_to_model_and_tokenizer(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeSentenceTransformer:
+        def __init__(self, model_name: str, *, device: str, token: str | None = None) -> None:
+            captured["model_name"] = model_name
+            captured["device"] = device
+            captured["sentence_transformer_token"] = token
+            self.max_seq_length = 256
+
+        def get_sentence_embedding_dimension(self) -> int:
+            return 384
+
+    class FakeTokenizer:
+        def __init__(self) -> None:
+            self.init_kwargs = {}
+
+        @classmethod
+        def from_pretrained(cls, model_name: str, *, use_fast: bool, token: str | None = None):
+            captured["tokenizer_model_name"] = model_name
+            captured["use_fast"] = use_fast
+            captured["tokenizer_token"] = token
+            return cls()
+
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    monkeypatch.setattr("sec_copilot.retrieval.embedding.resolve_embedding_device", lambda _: "cpu")
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(__version__="test-st", SentenceTransformer=FakeSentenceTransformer),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        types.SimpleNamespace(__version__="test-tf", AutoTokenizer=FakeTokenizer),
+    )
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(__version__="test-torch"))
+
+    from sec_copilot.retrieval.embedding import SentenceTransformerEmbeddingAdapter
+
+    adapter = SentenceTransformerEmbeddingAdapter(
+        EmbeddingConfig(model_name="sentence-transformers/all-MiniLM-L6-v2", device="cpu")
+    )
+
+    assert adapter.embedding_dimension == 384
+    assert captured["sentence_transformer_token"] == "hf_test_token"
+    assert captured["tokenizer_token"] == "hf_test_token"
+    assert captured["use_fast"] is True
+
+
+def test_cross_encoder_reranker_passes_hf_token_to_model_loader(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeCrossEncoder:
+        def __init__(self, model_name: str, *, device: str, token: str | None = None) -> None:
+            captured["model_name"] = model_name
+            captured["device"] = device
+            captured["token"] = token
+
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    monkeypatch.setattr("sec_copilot.rerank.cross_encoder.resolve_embedding_device", lambda _: "cpu")
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(CrossEncoder=FakeCrossEncoder),
+    )
+
+    reranker = CrossEncoderReranker(
+        RerankingConfig(
+            enabled=True,
+            required_for_generation=True,
+            model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            rerank_top_k=8,
+            batch_size=8,
+            device="cpu",
+        )
+    )
+    reranker.ensure_loaded()
+
+    assert captured["model_name"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    assert captured["token"] == "hf_test_token"

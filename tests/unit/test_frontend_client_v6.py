@@ -33,8 +33,17 @@ class FakeSession:
     def __init__(self, responses: list[FakeResponse] | None = None, *, error: Exception | None = None) -> None:
         self.responses = list(responses or [])
         self.error = error
+        self.requests: list[dict[str, object]] = []
 
     def request(self, method: str, url: str, json=None, timeout: float = 0.0):
+        self.requests.append(
+            {
+                "method": method,
+                "url": url,
+                "json": json,
+                "timeout": timeout,
+            }
+        )
         if self.error is not None:
             raise self.error
         if not self.responses:
@@ -213,6 +222,70 @@ def test_frontend_client_surfaces_unexpected_backend_errors() -> None:
     result = client.health()
     assert isinstance(result, ApiBackendError)
     assert result.status_code == 500
+
+
+def test_frontend_client_uses_operation_specific_timeouts() -> None:
+    session = FakeSession(
+        [
+            FakeResponse(status_code=200, payload={"status": "ok", "service": "sec", "version": "0.1.0", "retrieve_ready": False, "query_ready": False, "index_status": "missing", "last_index_refresh_at": None, "last_ingest_completed_at": None, "warnings": []}),
+            FakeResponse(
+                status_code=200,
+                payload={
+                    "status": "ok",
+                    "service": "sec",
+                    "version": "0.1.0",
+                    "retrieve_ready": False,
+                    "query_ready": False,
+                    "configured_provider": "openai",
+                    "effective_provider": "mock",
+                    "provider_fallback_enabled": True,
+                    "provider_fallback_active": True,
+                    "provider_fallback_reason": "missing_openai_api_key",
+                    "prompt_name": "grounded_answer_v3",
+                    "prompt_version": "v3_hybrid_reranked_grounded",
+                    "collection_name": "sec_semis_v1",
+                    "persist_directory": "artifacts/chroma",
+                    "coverage_status": "uninitialized",
+                    "target_scope": {"companies": [], "form_types": ["10-K", "10-Q"], "annual_limit": 2, "quarterly_limit": 4},
+                    "indexed_scope": {"companies": [], "form_types": [], "entries": [], "document_count": 0, "chunk_count": 0},
+                    "index_status": "missing",
+                    "processed_corpus_fingerprint": None,
+                    "indexed_corpus_fingerprint": None,
+                    "index_build_metadata": None,
+                    "last_ingest_completed_at": None,
+                    "last_index_refresh_at": None,
+                    "warnings": [],
+                },
+            ),
+            FakeResponse(status_code=503, payload={"error_type": "service_not_ready", "message": "Grounded query execution is not ready.", "retrieve_ready": False, "query_ready": False, "index_status": "missing", "coverage_status": "uninitialized", "indexed_scope": {"companies": [], "form_types": [], "entries": [], "document_count": 0, "chunk_count": 0}, "last_ingest_completed_at": None, "last_index_refresh_at": None, "warnings": []}),
+            FakeResponse(status_code=503, payload={"error_type": "service_not_ready", "message": "Retrieval debug execution is not ready.", "retrieve_ready": False, "query_ready": False, "index_status": "missing", "coverage_status": "uninitialized", "indexed_scope": {"companies": [], "form_types": [], "entries": [], "document_count": 0, "chunk_count": 0}, "last_ingest_completed_at": None, "last_index_refresh_at": None, "warnings": []}),
+            FakeResponse(status_code=400, payload={"detail": "SEC user agent is required"}),
+        ]
+    )
+    client = ApiClient(
+        "http://api.local",
+        status_timeout_seconds=11.0,
+        query_timeout_seconds=222.0,
+        retrieve_debug_timeout_seconds=333.0,
+        ingest_timeout_seconds=444.0,
+        session=session,
+    )
+
+    client.health()
+    client.build_info()
+    client.query(_query_request())
+    client.retrieve_debug(_query_request())
+    client.ingest_run(
+        IngestRunRequest(
+            companies=["NVDA"],
+            form_types=["10-K"],
+            annual_limit=1,
+            quarterly_limit=0,
+            index_mode="rebuild",
+        )
+    )
+
+    assert [request["timeout"] for request in session.requests] == [11.0, 11.0, 222.0, 333.0, 444.0]
 
 
 def _fixture_text(relative_path: str) -> str:

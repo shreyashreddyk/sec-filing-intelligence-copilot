@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -26,6 +27,8 @@ from sec_copilot.api.models import (
 from sec_copilot.api.service import CopilotApiService
 from sec_copilot.ingest.pipeline import IngestionPreflightError
 from sec_copilot.utils.logging import configure_logging, log_api_event
+
+load_dotenv()
 
 
 def create_app(

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
+from time import perf_counter
 
 from sec_copilot.config.retrieval import RetrievalConfig
 from sec_copilot.generation.prompts import GroundedPromptBuilder, PromptAssemblyResult
 from sec_copilot.generation.providers import LLMProvider
-from sec_copilot.retrieval.retriever import HybridRetriever
+from sec_copilot.retrieval.retriever import HybridRetriever, RetrievalTimingBreakdown
 from sec_copilot.schemas.retrieval import Citation, QueryRequest, QueryResponse, RetrievedChunk
 from sec_copilot.utils.logging import log_query_event
 
@@ -21,6 +23,28 @@ ABSTENTION_MESSAGES = {
     "invalid_citations": "The generated answer did not reference valid cited evidence from the final context.",
     "reranker_unavailable": "The reranker was unavailable, so the system abstained instead of answering from lower-confidence evidence.",
 }
+
+
+@dataclass(frozen=True)
+class AnswerTimingBreakdown:
+    """Latency summary for grounded answer execution."""
+
+    retrieval: RetrievalTimingBreakdown
+    prompt_build_ms: float
+    generation_ms: float
+    citation_validation_ms: float
+    total_ms: float
+
+
+@dataclass(frozen=True)
+class GroundedAnswerExecution:
+    """Full grounded answer execution trace for API and eval use."""
+
+    response: QueryResponse
+    retrieval: object
+    prompt: PromptAssemblyResult | None
+    provider_name: str
+    timings: AnswerTimingBreakdown
 
 
 class GroundedAnswerPipeline:
@@ -39,16 +63,28 @@ class GroundedAnswerPipeline:
         self.provider = provider
 
     def answer(self, request: QueryRequest) -> QueryResponse:
-        response, _, _ = self.answer_with_trace(request)
-        return response
+        return self.execute(request).response
 
     def answer_with_trace(
         self,
         request: QueryRequest,
         retrieval=None,
     ) -> tuple[QueryResponse, object, PromptAssemblyResult | None]:
+        execution = self.execute(request, retrieval=retrieval)
+        return execution.response, execution.retrieval, execution.prompt
+
+    def execute(
+        self,
+        request: QueryRequest,
+        retrieval=None,
+    ) -> GroundedAnswerExecution:
+        started_at = perf_counter()
         retrieval = retrieval or self.retriever.retrieve(request)
         prompt: PromptAssemblyResult | None = None
+        prompt_build_ms = 0.0
+        generation_ms = 0.0
+        citation_validation_ms = 0.0
+        provider_name = getattr(self.provider, "name", "unknown")
 
         if retrieval.reason_code in {"filters_excluded_all_chunks", "no_hits"}:
             response = self._abstained_response(
@@ -56,7 +92,19 @@ class GroundedAnswerPipeline:
                 reason_code=retrieval.reason_code,
             )
             self._log_query(request, retrieval, response, prompt)
-            return response, retrieval, prompt
+            return GroundedAnswerExecution(
+                response=response,
+                retrieval=retrieval,
+                prompt=prompt,
+                provider_name=provider_name,
+                timings=AnswerTimingBreakdown(
+                    retrieval=retrieval.timings,
+                    prompt_build_ms=prompt_build_ms,
+                    generation_ms=generation_ms,
+                    citation_validation_ms=citation_validation_ms,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
+            )
 
         if not retrieval.reranker_applied and self.config.reranking.required_for_generation:
             response = self._abstained_response(
@@ -64,7 +112,19 @@ class GroundedAnswerPipeline:
                 reason_code="reranker_unavailable",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response, retrieval, prompt
+            return GroundedAnswerExecution(
+                response=response,
+                retrieval=retrieval,
+                prompt=prompt,
+                provider_name=provider_name,
+                timings=AnswerTimingBreakdown(
+                    retrieval=retrieval.timings,
+                    prompt_build_ms=prompt_build_ms,
+                    generation_ms=generation_ms,
+                    citation_validation_ms=citation_validation_ms,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
+            )
 
         top_rerank_score = retrieval.retrieved_chunks[0].rerank_score if retrieval.retrieved_chunks else None
         if top_rerank_score is None or top_rerank_score < self.config.abstention.weak_top_rerank_score_threshold:
@@ -73,7 +133,19 @@ class GroundedAnswerPipeline:
                 reason_code="weak_support",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response, retrieval, prompt
+            return GroundedAnswerExecution(
+                response=response,
+                retrieval=retrieval,
+                prompt=prompt,
+                provider_name=provider_name,
+                timings=AnswerTimingBreakdown(
+                    retrieval=retrieval.timings,
+                    prompt_build_ms=prompt_build_ms,
+                    generation_ms=generation_ms,
+                    citation_validation_ms=citation_validation_ms,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
+            )
 
         strong_support_count = sum(
             1
@@ -86,13 +158,29 @@ class GroundedAnswerPipeline:
                 reason_code="insufficient_supporting_chunks",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response, retrieval, prompt
+            return GroundedAnswerExecution(
+                response=response,
+                retrieval=retrieval,
+                prompt=prompt,
+                provider_name=provider_name,
+                timings=AnswerTimingBreakdown(
+                    retrieval=retrieval.timings,
+                    prompt_build_ms=prompt_build_ms,
+                    generation_ms=generation_ms,
+                    citation_validation_ms=citation_validation_ms,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
+            )
 
+        prompt_started_at = perf_counter()
         prompt = self.prompt_builder.build(
             question=request.question,
             retrieved_chunks=list(retrieval.retrieved_chunks),
         )
+        prompt_build_ms = (perf_counter() - prompt_started_at) * 1000.0
+        generation_started_at = perf_counter()
         provider_answer = self.provider.generate(prompt)
+        generation_ms = (perf_counter() - generation_started_at) * 1000.0
         if provider_answer.abstained:
             response = QueryResponse(
                 answer=provider_answer.answer or ABSTENTION_MESSAGES["model_abstained"],
@@ -102,20 +190,46 @@ class GroundedAnswerPipeline:
                 reason_code="model_abstained",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response, retrieval, prompt
+            return GroundedAnswerExecution(
+                response=response,
+                retrieval=retrieval,
+                prompt=prompt,
+                provider_name=provider_name,
+                timings=AnswerTimingBreakdown(
+                    retrieval=retrieval.timings,
+                    prompt_build_ms=prompt_build_ms,
+                    generation_ms=generation_ms,
+                    citation_validation_ms=citation_validation_ms,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
+            )
 
+        citation_started_at = perf_counter()
         citations = self._validate_and_build_citations(
             citation_chunk_ids=provider_answer.citation_chunk_ids,
             retrieved_chunks=list(retrieval.retrieved_chunks),
             final_context_chunk_ids=prompt.context_chunk_ids,
         )
+        citation_validation_ms = (perf_counter() - citation_started_at) * 1000.0
         if citations is None:
             response = self._abstained_response(
                 retrieved_chunks=list(retrieval.retrieved_chunks),
                 reason_code="invalid_citations",
             )
             self._log_query(request, retrieval, response, prompt)
-            return response, retrieval, prompt
+            return GroundedAnswerExecution(
+                response=response,
+                retrieval=retrieval,
+                prompt=prompt,
+                provider_name=provider_name,
+                timings=AnswerTimingBreakdown(
+                    retrieval=retrieval.timings,
+                    prompt_build_ms=prompt_build_ms,
+                    generation_ms=generation_ms,
+                    citation_validation_ms=citation_validation_ms,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
+            )
 
         response = QueryResponse(
             answer=provider_answer.answer,
@@ -125,7 +239,19 @@ class GroundedAnswerPipeline:
             reason_code="ok",
         )
         self._log_query(request, retrieval, response, prompt)
-        return response, retrieval, prompt
+        return GroundedAnswerExecution(
+            response=response,
+            retrieval=retrieval,
+            prompt=prompt,
+            provider_name=provider_name,
+            timings=AnswerTimingBreakdown(
+                retrieval=retrieval.timings,
+                prompt_build_ms=prompt_build_ms,
+                generation_ms=generation_ms,
+                citation_validation_ms=citation_validation_ms,
+                total_ms=(perf_counter() - started_at) * 1000.0,
+            ),
+        )
 
     def _validate_and_build_citations(
         self,
@@ -201,4 +327,8 @@ def _citation_from_chunk(chunk: RetrievedChunk) -> Citation:
     )
 
 
-__all__ = ["GroundedAnswerPipeline"]
+__all__ = [
+    "AnswerTimingBreakdown",
+    "GroundedAnswerExecution",
+    "GroundedAnswerPipeline",
+]

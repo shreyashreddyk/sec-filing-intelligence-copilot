@@ -84,7 +84,7 @@ class ChromaIndexManager:
     ) -> IndexBuildResult:
         index_mode = mode or self.config.index.default_mode
         chunks = store.values()
-        corpus_fingerprint = _corpus_fingerprint(chunks)
+        corpus_fingerprint = compute_corpus_fingerprint(chunks)
         index_policy_fingerprint = _index_policy_fingerprint(self.config, self.adapter)
 
         subchunks = []
@@ -205,7 +205,7 @@ def _subchunk_metadata(subchunk) -> dict[str, str | int]:
     }
 
 
-def _corpus_fingerprint(chunks) -> str:
+def compute_corpus_fingerprint(chunks) -> str:
     lines = [f"{chunk.chunk_id}:{chunk.content_hash}" for chunk in chunks]
     payload = "\n".join(sorted(lines)).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -228,4 +228,5 @@ __all__ = [
     "DenseIndexError",
     "IndexBuildMetadata",
     "IndexBuildResult",
+    "compute_corpus_fingerprint",
 ]

@@ -70,6 +70,11 @@ class CrossEncoderReranker:
         ]
         return tuple(rescored[: self.config.rerank_top_k])
 
+    def ensure_loaded(self) -> None:
+        """Preflight the configured cross-encoder runtime."""
+
+        self._load_model()
+
     def _load_model(self):
         if self._model is not None:
             return self._model

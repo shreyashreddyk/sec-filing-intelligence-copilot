@@ -55,6 +55,10 @@ eval-full:
 compare-v3:
 	.venv/bin/python scripts/compare_retrieval_modes.py --include-generation --write-csv
 
+.PHONY: serve-api
+serve-api:
+	.venv/bin/python -m uvicorn sec_copilot.api.app:app --reload
+
 .PHONY: walkthrough-v2
 walkthrough-v2:
 	.venv/bin/python scripts/v2_cpu_walkthrough.py

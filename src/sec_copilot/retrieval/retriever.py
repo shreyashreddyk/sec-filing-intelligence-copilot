@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from time import perf_counter
 
 from sec_copilot.config.retrieval import RetrievalConfig
 from sec_copilot.rerank.cross_encoder import Reranker, RerankerUnavailableError
@@ -30,6 +31,18 @@ class DenseRetrievalResult:
     results: tuple[RetrievedChunk, ...]
     subchunk_hit_count: int
     parent_candidate_count: int
+    elapsed_ms: float = 0.0
+
+
+@dataclass(frozen=True)
+class RetrievalTimingBreakdown:
+    """Latency summary for retrieval stages."""
+
+    dense_ms: float
+    bm25_ms: float
+    fusion_ms: float
+    rerank_ms: float
+    total_ms: float
 
 
 @dataclass(frozen=True)
@@ -41,6 +54,13 @@ class HybridRetrievalOutcome:
     stage_counts: RetrievalStageCounts
     reranker_applied: bool
     reranker_skipped_reason: str | None = None
+    timings: RetrievalTimingBreakdown = RetrievalTimingBreakdown(
+        dense_ms=0.0,
+        bm25_ms=0.0,
+        fusion_ms=0.0,
+        rerank_ms=0.0,
+        total_ms=0.0,
+    )
 
     def to_response(self) -> RetrievalResponse:
         return RetrievalResponse(
@@ -62,8 +82,14 @@ class DenseRetriever:
         self.collection = collection
 
     def retrieve(self, question: str, filters: RetrievalFilters, top_k: int | None = None) -> DenseRetrievalResult:
+        started_at = perf_counter()
         if len(self.store) == 0:
-            return DenseRetrievalResult(results=(), subchunk_hit_count=0, parent_candidate_count=0)
+            return DenseRetrievalResult(
+                results=(),
+                subchunk_hit_count=0,
+                parent_candidate_count=0,
+                elapsed_ms=0.0,
+            )
 
         dense_top_k = top_k or self.config.retrieval.dense_top_k
         where = build_chroma_where(filters)
@@ -125,6 +151,7 @@ class DenseRetriever:
             results=ranked,
             subchunk_hit_count=len(ids),
             parent_candidate_count=len(collapsed),
+            elapsed_ms=(perf_counter() - started_at) * 1000.0,
         )
 
 
@@ -146,6 +173,7 @@ class HybridRetriever:
         self.reranker = reranker
 
     def retrieve(self, request: QueryRequest) -> HybridRetrievalOutcome:
+        started_at = perf_counter()
         filtered_parent_chunks = self.store.filtered_values(request.filters)
         if not filtered_parent_chunks:
             stage_counts = RetrievalStageCounts(
@@ -162,16 +190,25 @@ class HybridRetriever:
                 stage_counts=stage_counts,
                 reranker_applied=False,
                 reranker_skipped_reason="filters_excluded_all_chunks",
+                timings=RetrievalTimingBreakdown(
+                    dense_ms=0.0,
+                    bm25_ms=0.0,
+                    fusion_ms=0.0,
+                    rerank_ms=0.0,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
             )
             self._log_retrieval(request, outcome)
             return outcome
 
         dense_result = self.dense_retriever.retrieve(request.question, request.filters)
+        bm25_started_at = perf_counter()
         bm25_result = self.bm25_retriever.retrieve(
             request.question,
             request.filters,
             self.config.retrieval.bm25_top_k,
         )
+        bm25_elapsed_ms = (perf_counter() - bm25_started_at) * 1000.0
 
         if not dense_result.results and not bm25_result.results:
             stage_counts = RetrievalStageCounts(
@@ -188,21 +225,31 @@ class HybridRetriever:
                 stage_counts=stage_counts,
                 reranker_applied=False,
                 reranker_skipped_reason="no_hits",
+                timings=RetrievalTimingBreakdown(
+                    dense_ms=dense_result.elapsed_ms,
+                    bm25_ms=bm25_elapsed_ms,
+                    fusion_ms=0.0,
+                    rerank_ms=0.0,
+                    total_ms=(perf_counter() - started_at) * 1000.0,
+                ),
             )
             self._log_retrieval(request, outcome)
             return outcome
 
+        fusion_started_at = perf_counter()
         fused_results = fuse_with_rrf(
             dense_results=dense_result.results,
             bm25_results=bm25_result.results,
             rrf_k=self.config.fusion.rrf_k,
             top_k=self.config.retrieval.fused_top_k_before_rerank,
         )
+        fusion_elapsed_ms = (perf_counter() - fusion_started_at) * 1000.0
 
         reason_code: ReasonCode = "ok"
         reranker_applied = False
         reranker_skipped_reason: str | None = None
         final_results = fused_results
+        rerank_elapsed_ms = 0.0
 
         if self.config.reranking.enabled:
             if self.reranker is None:
@@ -210,7 +257,9 @@ class HybridRetriever:
                 reranker_skipped_reason = "reranker_not_configured"
             else:
                 try:
+                    rerank_started_at = perf_counter()
                     final_results = self.reranker.rerank(request.question, fused_results)
+                    rerank_elapsed_ms = (perf_counter() - rerank_started_at) * 1000.0
                     reranker_applied = True
                 except RerankerUnavailableError:
                     reason_code = "reranker_unavailable"
@@ -233,6 +282,13 @@ class HybridRetriever:
             stage_counts=stage_counts,
             reranker_applied=reranker_applied,
             reranker_skipped_reason=reranker_skipped_reason,
+            timings=RetrievalTimingBreakdown(
+                dense_ms=dense_result.elapsed_ms,
+                bm25_ms=bm25_elapsed_ms,
+                fusion_ms=fusion_elapsed_ms,
+                rerank_ms=rerank_elapsed_ms,
+                total_ms=(perf_counter() - started_at) * 1000.0,
+            ),
         )
         self._log_retrieval(request, outcome)
         return outcome
@@ -264,4 +320,5 @@ __all__ = [
     "DenseRetriever",
     "HybridRetrievalOutcome",
     "HybridRetriever",
+    "RetrievalTimingBreakdown",
 ]

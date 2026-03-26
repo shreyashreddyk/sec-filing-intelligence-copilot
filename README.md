@@ -233,9 +233,7 @@ Makefile              Common local development and validation commands
 - The evaluation corpus is intentionally smaller than the full live research surface
 - The current company universe is focused on one sector to keep retrieval quality and evaluation tractable
 
-## Resume-Relevant Takeaways
-
-A hiring manager reviewing this project should be able to see:
+## What makes this production-ready?
 
 - clear separation between ingestion, retrieval, reranking, generation, serving, and evaluation
 - grounded-answer behavior instead of generic LLM summarization

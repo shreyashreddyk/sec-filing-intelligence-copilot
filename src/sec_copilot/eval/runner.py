@@ -31,6 +31,7 @@ from sec_copilot.eval.schemas import (
     EvalExample,
     EvalMode,
     EvalProviderName,
+    EvalRagasConfig,
     EvalRunResult,
     EvalScoreBackend,
     EvalSectionResult,
@@ -51,6 +52,7 @@ def run_eval(
     dataset: EvalDataset,
     dataset_path: str | Path,
     corpus_path: str | Path,
+    ragas_config: EvalRagasConfig,
     subset: str,
     mode: EvalMode,
     provider: EvalProviderName | None,
@@ -148,8 +150,9 @@ def run_eval(
             try:
                 ragas_scores = score_with_ragas(
                     ragas_rows,
-                    model_name=retrieval_config.provider.openai_model,
+                    ragas_config=ragas_config,
                     api_key=os.getenv("OPENAI_API_KEY"),
+                    score_backend=score_backend or "ragas",
                 )
             except RagasUnavailableError as exc:
                 if score_backend == "ragas":
@@ -201,6 +204,7 @@ def run_eval(
             "mode": mode,
             "provider": provider,
             "score_backend": score_backend,
+            "ragas": ragas_config.model_dump(mode="json"),
             "retrieval_ks": eval_config.retrieval_ks,
             "thresholds": eval_config.thresholds.model_dump(mode="json"),
         },

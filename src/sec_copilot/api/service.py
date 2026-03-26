@@ -516,6 +516,7 @@ class CopilotApiService:
             dataset=dataset,
             dataset_path=eval_config.dataset_path,
             corpus_path=eval_config.corpus_path,
+            ragas_config=eval_config.ragas,
             subset=resolved["subset"],
             mode=resolved["mode"],
             provider=resolved["provider"],

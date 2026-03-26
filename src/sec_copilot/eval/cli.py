@@ -12,6 +12,7 @@ from sec_copilot.config import load_prompt_catalog, load_retrieval_config
 from sec_copilot.eval.artifacts import resolve_output_dir, write_eval_artifacts
 from sec_copilot.eval.config import EvalConfigError, load_eval_config
 from sec_copilot.eval.dataset import EvalDatasetError, load_eval_dataset
+from sec_copilot.eval.schemas import EvalRagasConfig
 from sec_copilot.eval.runner import run_eval
 
 
@@ -34,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
         _validate_combinations(args, resolved)
         if not _select_count(dataset.examples, resolved["subset"]):
             raise ValueError(f"Subset {resolved['subset']!r} selected zero eval examples.")
+        ragas_config = _resolve_ragas_config(eval_config.ragas, resolved)
     except (EvalConfigError, EvalDatasetError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -49,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         dataset=dataset,
         dataset_path=eval_config.dataset_path,
         corpus_path=eval_config.corpus_path,
+        ragas_config=ragas_config,
         subset=resolved["subset"],
         mode=resolved["mode"],
         provider=resolved["provider"],
@@ -79,7 +82,24 @@ def _resolve_run_settings(args: argparse.Namespace, eval_config) -> dict[str, ob
         "score_backend": score_backend,
         "output_dir": args.output_dir,
         "fail_on_thresholds": fail_on_thresholds,
+        "ragas_model": args.ragas_model,
+        "ragas_max_completion_tokens": args.ragas_max_completion_tokens,
+        "ragas_answer_relevancy_strictness": args.ragas_answer_relevancy_strictness,
+        "ragas_reasoning_effort": args.ragas_reasoning_effort,
     }
+
+
+def _resolve_ragas_config(base_config: EvalRagasConfig, resolved: dict[str, object]) -> EvalRagasConfig:
+    overrides: dict[str, object] = {}
+    if resolved["ragas_model"] is not None:
+        overrides["model_name"] = resolved["ragas_model"]
+    if resolved["ragas_max_completion_tokens"] is not None:
+        overrides["max_completion_tokens"] = resolved["ragas_max_completion_tokens"]
+    if resolved["ragas_answer_relevancy_strictness"] is not None:
+        overrides["answer_relevancy_strictness"] = resolved["ragas_answer_relevancy_strictness"]
+    if resolved["ragas_reasoning_effort"] is not None:
+        overrides["reasoning_effort"] = resolved["ragas_reasoning_effort"]
+    return base_config.model_copy(update=overrides)
 
 
 def _validate_combinations(args: argparse.Namespace, resolved: dict[str, object]) -> None:
@@ -123,6 +143,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Answer scoring backend.",
     )
     run_parser.add_argument("--output-dir", help="Optional explicit output directory.")
+    run_parser.add_argument("--ragas-model", help="Optional override for the Ragas evaluator model.")
+    run_parser.add_argument(
+        "--ragas-max-completion-tokens",
+        type=int,
+        help="Optional override for the Ragas evaluator max completion tokens.",
+    )
+    run_parser.add_argument(
+        "--ragas-answer-relevancy-strictness",
+        type=int,
+        help="Optional override for the Ragas answer_relevancy strictness.",
+    )
+    run_parser.add_argument(
+        "--ragas-reasoning-effort",
+        help="Optional reasoning effort override for reasoning-model evaluator experiments.",
+    )
     run_parser.add_argument(
         "--fail-on-thresholds",
         type=_parse_bool,

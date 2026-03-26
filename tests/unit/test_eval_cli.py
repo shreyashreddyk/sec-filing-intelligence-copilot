@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from sec_copilot.eval.cli import main
+from sec_copilot.eval.cli import _resolve_ragas_config, main
+from sec_copilot.eval.schemas import EvalRagasConfig
 
 
 def test_eval_cli_rejects_mock_provider_with_threshold_gating(tmp_path: Path) -> None:
@@ -92,3 +93,20 @@ def test_eval_cli_smoke_subset_writes_artifacts(tmp_path: Path) -> None:
     assert payload["thresholds"]["blocking"]
     assert payload["retrieval"]["executed"] is True
     assert payload["answer"]["executed"] is True
+
+
+def test_resolve_ragas_config_applies_cli_overrides() -> None:
+    base = EvalRagasConfig()
+    resolved = {
+        "ragas_model": "gpt-5-mini",
+        "ragas_max_completion_tokens": 8192,
+        "ragas_answer_relevancy_strictness": 2,
+        "ragas_reasoning_effort": "low",
+    }
+
+    effective = _resolve_ragas_config(base, resolved)
+
+    assert effective.model_name == "gpt-5-mini"
+    assert effective.max_completion_tokens == 8192
+    assert effective.answer_relevancy_strictness == 2
+    assert effective.reasoning_effort == "low"

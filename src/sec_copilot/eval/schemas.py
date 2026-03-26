@@ -170,6 +170,28 @@ class EvalThresholdGroups(BaseModel):
     non_blocking: list[EvalThreshold] = Field(default_factory=list)
 
 
+class EvalRagasConfig(BaseModel):
+    """Optional richer local Ragas scoring configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: str = Field(default="gpt-4.1-mini", min_length=1)
+    embedding_model: str = Field(default="text-embedding-3-small", min_length=1)
+    max_completion_tokens: int = Field(default=4096, ge=256)
+    answer_relevancy_strictness: int = Field(default=1, ge=1)
+    reasoning_effort: str | None = Field(default=None, min_length=1)
+
+    @field_validator("model_name", "embedding_model", "reasoning_effort")
+    @classmethod
+    def _normalize_string_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return normalized
+
+
 class EvalConfig(BaseModel):
     """Offline evaluation configuration."""
 
@@ -184,6 +206,7 @@ class EvalConfig(BaseModel):
     default_score_backend: EvalScoreBackend
     retrieval_ks: list[int] = Field(default_factory=lambda: [1, 2, 4])
     output_root: str = Field(min_length=1)
+    ragas: EvalRagasConfig = Field(default_factory=EvalRagasConfig)
     thresholds: EvalThresholdGroups
 
     @field_validator("retrieval_ks", mode="after")
@@ -345,6 +368,7 @@ __all__ = [
     "EvalExample",
     "EvalMode",
     "EvalProviderName",
+    "EvalRagasConfig",
     "EvalRunResult",
     "EvalScoreBackend",
     "EvalSectionResult",

@@ -129,6 +129,10 @@ Optional richer local OpenAI plus Ragas run:
 .venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider openai --score-backend both --output-dir artifacts/evals/ci_smoke_openai_ragas_retry --fail-on-thresholds false
 ```
 
+The richer Ragas path uses a dedicated evaluator configuration from `configs/eval.yaml`.
+It is intentionally decoupled from the app's answer-generation model so local grading can
+use a more stable structured-output evaluator default such as `gpt-4.1-mini`.
+
 Eval outputs are reproducible local artifacts under `artifacts/evals/`. They are not treated as committed repo assets.
 
 ## Benchmark Highlights
@@ -145,6 +149,7 @@ Optional richer local OpenAI plus Ragas run:
 
 - command: `.venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider openai --score-backend both --output-dir artifacts/evals/ci_smoke_openai_ragas_retry --fail-on-thresholds false`
 - local output: `artifacts/evals/ci_smoke_openai_ragas_retry/report.md`
+- default Ragas evaluator: `gpt-4.1-mini`
 - Ragas: `ragas_faithfulness=0.9667`, `ragas_response_relevancy=0.7841`, `ragas_context_precision=0.5556`
 
 These numbers are local validation results tied to the commands above, the tracked gold set, and the current workspace outputs.

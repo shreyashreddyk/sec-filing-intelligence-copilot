@@ -10,6 +10,12 @@ retrieval_ks:
   - 2
   - 4
 output_root: artifacts/evals
+ragas:
+  model_name: gpt-4.1-mini
+  embedding_model: text-embedding-3-small
+  max_completion_tokens: 4096
+  answer_relevancy_strictness: 1
+  reasoning_effort: null
 thresholds:
   blocking:
     - name: retrieval_hit_rate_at_4

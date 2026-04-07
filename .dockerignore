@@ -8,7 +8,12 @@ __pycache__
 *.pyo
 *.pyd
 *.egg-info
+.env
+.env.*
+.cache
 artifacts
 data
 docs
+models
+huggingface
 .DS_Store

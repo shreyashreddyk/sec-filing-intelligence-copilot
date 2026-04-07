@@ -94,7 +94,7 @@ Admin-only surface for local bootstrap or internal operations:
 - `POST /ingest/run`
 - `POST /eval/run`
 
-Local development uses the admin-capable FastAPI app. Container-safe public startup should use the public FastAPI app that excludes admin routes.
+Local development uses the admin-capable FastAPI app. Container-safe public startup uses the default FastAPI app with `SEC_COPILOT_ENABLE_ADMIN_ROUTES=false`, which keeps the public surface while preserving the stable `sec_copilot.api.app:app` import path for Docker.
 
 ### Retrieval and answer pipeline
 
@@ -254,12 +254,57 @@ Relevant runtime env vars for deployment prep:
 - `SEC_COPILOT_ENV`
 - `SEC_COPILOT_ENABLE_ADMIN_ROUTES`
 - `SEC_COPILOT_LOG_LEVEL`
+- `SEC_COPILOT_PROJECT_ROOT`
 - `SEC_COPILOT_DATA_DIR`
 - `SEC_COPILOT_CHROMA_DIR`
 - `SEC_COPILOT_OPENAI_MODEL`
 - `OPENAI_API_KEY`
 - `HF_TOKEN`
+- `HF_HOME`
+- `TRANSFORMERS_CACHE`
+- `SENTENCE_TRANSFORMERS_HOME`
 - `SEC_COPILOT_UI_BACKEND_URL`
+
+## Local Container Run
+
+The repository now uses separate images because the FastAPI API owns model loading, dense retrieval, reranking, and optional GPU acceleration, while the Streamlit UI is a thin CPU-only client that can scale independently and stay much smaller.
+
+Both images should stay stateless. Runtime corpus data, Chroma state, eval outputs, and model caches belong on mounted volumes or writable runtime paths rather than inside the Git repo or baked into image layers.
+
+Build the images locally:
+
+```bash
+docker build -f Dockerfile.api -t sec-copilot-api:local .
+docker build -f Dockerfile.ui -t sec-copilot-ui:local .
+```
+
+Create a shared Docker network once:
+
+```bash
+docker network create sec-copilot || true
+```
+
+Run the API with mounted state directories:
+
+```bash
+docker run --rm --name sec-copilot-api --network sec-copilot -p 8000:8000 --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/artifacts:/app/artifacts" sec-copilot-api:local
+```
+
+On a Docker host with NVIDIA runtime support, add `--gpus all` to the API command so Torch can use CUDA inside the container.
+
+Verify the API health endpoint:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Run the UI against the API container:
+
+```bash
+docker run --rm --name sec-copilot-ui --network sec-copilot -p 8501:8501 -e SEC_COPILOT_UI_BACKEND_URL=http://sec-copilot-api:8000 sec-copilot-ui:local
+```
+
+The API image defaults to `SEC_COPILOT_ENABLE_ADMIN_ROUTES=false`, so local or internal admin workflows should override that explicitly instead of exposing ingest and eval routes by default.
 
 ## Repository Structure
 

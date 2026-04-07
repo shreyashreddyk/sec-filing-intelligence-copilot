@@ -1,0 +1,36 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    SEC_COPILOT_ENV=production \
+    SEC_COPILOT_ENABLE_ADMIN_ROUTES=false \
+    SEC_COPILOT_PROJECT_ROOT=/app \
+    SEC_COPILOT_DATA_DIR=/app/data \
+    SEC_COPILOT_CHROMA_DIR=/app/artifacts/chroma \
+    XDG_CACHE_HOME=/app/.cache \
+    HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
+
+WORKDIR /app
+
+RUN pip install --upgrade pip \
+    && pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
+
+COPY pyproject.toml README.md /app/
+COPY configs /app/configs
+COPY src /app/src
+
+RUN pip install .
+
+RUN groupadd --system sec_copilot \
+    && useradd --system --gid sec_copilot --create-home --home-dir /home/sec_copilot sec_copilot \
+    && mkdir -p /app/data /app/artifacts/chroma /app/.cache \
+    && chown -R sec_copilot:sec_copilot /app /home/sec_copilot
+
+USER sec_copilot
+
+EXPOSE 8000
+
+CMD ["uvicorn", "sec_copilot.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

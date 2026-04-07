@@ -1,6 +1,5 @@
 .codex/
 AGENTS.md
-# Local-only project docs stay on this machine and should not be tracked.
 docs/
 .venv/
 __pycache__/
@@ -9,5 +8,6 @@ __pycache__/
 artifacts/
 data/raw/
 data/processed/
+.cache/
 .env
 .DS_Store

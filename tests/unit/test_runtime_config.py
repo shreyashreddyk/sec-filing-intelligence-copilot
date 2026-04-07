@@ -9,6 +9,7 @@ from sec_copilot.frontend.runtime import load_frontend_backend_url_from_env
 
 
 def test_runtime_paths_default_to_repo_root(monkeypatch) -> None:
+    monkeypatch.delenv("SEC_COPILOT_PROJECT_ROOT", raising=False)
     monkeypatch.delenv("SEC_COPILOT_CONFIG_DIR", raising=False)
     monkeypatch.delenv("SEC_COPILOT_COMPANIES_CONFIG_PATH", raising=False)
     monkeypatch.delenv("SEC_COPILOT_RETRIEVAL_CONFIG_PATH", raising=False)
@@ -25,6 +26,26 @@ def test_runtime_paths_default_to_repo_root(monkeypatch) -> None:
     assert paths.data_dir == project_root / "data"
     assert paths.chroma_dir == project_root / "artifacts" / "chroma"
     assert paths.companies_config_path == project_root / "configs" / "companies.yaml"
+
+
+def test_runtime_paths_honor_project_root_override(monkeypatch, tmp_path) -> None:
+    project_root = tmp_path / "container-root"
+    monkeypatch.setenv("SEC_COPILOT_PROJECT_ROOT", str(project_root))
+    monkeypatch.delenv("SEC_COPILOT_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_COMPANIES_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_RETRIEVAL_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_PROMPTS_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_EVAL_CONFIG_PATH", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_DATA_DIR", raising=False)
+    monkeypatch.delenv("SEC_COPILOT_CHROMA_DIR", raising=False)
+
+    paths = load_runtime_paths_from_env()
+
+    assert default_project_root() == project_root.resolve()
+    assert paths.project_root == project_root.resolve()
+    assert paths.config_dir == project_root.resolve() / "configs"
+    assert paths.data_dir == project_root.resolve() / "data"
+    assert paths.chroma_dir == project_root.resolve() / "artifacts" / "chroma"
 
 
 def test_api_runtime_settings_disable_admin_routes_in_production_by_default(monkeypatch) -> None:

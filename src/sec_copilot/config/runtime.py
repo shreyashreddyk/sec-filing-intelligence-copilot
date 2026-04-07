@@ -13,6 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 def default_project_root() -> Path:
     """Return the repository root used for runtime-relative paths."""
 
+    override = os.getenv("SEC_COPILOT_PROJECT_ROOT")
+    if override and override.strip():
+        return Path(override).expanduser().resolve()
     return PROJECT_ROOT
 
 

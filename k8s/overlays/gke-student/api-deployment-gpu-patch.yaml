@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sec-copilot-api
+spec:
+  template:
+    spec:
+      nodeSelector:
+        # Replace with the accelerator type in your GPU node pool.
+        cloud.google.com/gke-accelerator: nvidia-tesla-t4
+        # Replace or remove this node pool selector if your cluster labels GPU pools differently.
+        cloud.google.com/gke-nodepool: gpu-pool
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: present
+          effect: NoSchedule
+      containers:
+        - name: api
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "4Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2000m"
+              memory: "8Gi"
+              nvidia.com/gpu: "1"

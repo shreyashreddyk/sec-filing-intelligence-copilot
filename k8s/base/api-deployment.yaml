@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sec-copilot-api
+  labels:
+    app.kubernetes.io/name: sec-copilot-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: sec-filing-intelligence-copilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sec-copilot-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sec-copilot-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: sec-filing-intelligence-copilot
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 2000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: api
+          image: sec-copilot-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: sec-copilot-config
+            - secretRef:
+                name: sec-copilot-secrets
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/sec-copilot
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "4Gi"
+            limits:
+              cpu: "2000m"
+              memory: "8Gi"
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: sec-copilot-state

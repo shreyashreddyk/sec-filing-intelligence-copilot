@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sec-copilot
+  labels:
+    app.kubernetes.io/name: sec-copilot
+    app.kubernetes.io/part-of: sec-filing-intelligence-copilot

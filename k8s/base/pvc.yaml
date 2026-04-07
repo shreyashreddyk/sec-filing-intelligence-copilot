@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sec-copilot-state
+  labels:
+    app.kubernetes.io/name: sec-copilot
+    app.kubernetes.io/part-of: sec-filing-intelligence-copilot
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+  # Set storageClassName in an overlay if your GKE cluster does not use the default StorageClass.

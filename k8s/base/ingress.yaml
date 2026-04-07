@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sec-copilot-ui
+  labels:
+    app.kubernetes.io/name: sec-copilot-ui
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: sec-filing-intelligence-copilot
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.allow-http: "true"
+    # Add a static IP annotation here later if you reserve a GCLB address for the UI.
+spec:
+  defaultBackend:
+    service:
+      name: sec-copilot-ui
+      port:
+        number: 80
+  # Add host rules later if you map a custom domain to the GKE load balancer.

@@ -11,7 +11,11 @@ from sec_copilot.frontend.presenters import (
     configured_company_tickers,
     resolve_scope_options,
 )
-from sec_copilot.frontend.runtime import FrontendTimeouts, load_frontend_timeouts_from_env
+from sec_copilot.frontend.runtime import (
+    FrontendTimeouts,
+    load_frontend_enable_bootstrap_from_env,
+    load_frontend_timeouts_from_env,
+)
 from sec_copilot.frontend.starter_queries import STARTER_QUERIES
 
 
@@ -194,3 +198,10 @@ def test_load_frontend_timeouts_from_env_rejects_non_positive_values(monkeypatch
 
     with pytest.raises(ValueError, match="SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS"):
         load_frontend_timeouts_from_env()
+
+
+def test_load_frontend_enable_bootstrap_from_env_rejects_invalid_values(monkeypatch) -> None:
+    monkeypatch.setenv("SEC_COPILOT_UI_ENABLE_BOOTSTRAP", "sometimes")
+
+    with pytest.raises(ValueError, match="SEC_COPILOT_UI_ENABLE_BOOTSTRAP"):
+        load_frontend_enable_bootstrap_from_env()

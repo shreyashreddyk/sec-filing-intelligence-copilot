@@ -6,7 +6,10 @@ from sec_copilot.config.runtime import (
     load_api_runtime_settings_from_env,
     load_runtime_paths_from_env,
 )
-from sec_copilot.frontend.runtime import load_frontend_backend_url_from_env
+from sec_copilot.frontend.runtime import (
+    load_frontend_backend_url_from_env,
+    load_frontend_enable_bootstrap_from_env,
+)
 
 
 def test_runtime_paths_default_to_repo_root(monkeypatch) -> None:
@@ -129,3 +132,15 @@ def test_frontend_backend_url_loader_uses_override(monkeypatch) -> None:
     monkeypatch.setenv("SEC_COPILOT_UI_BACKEND_URL", "http://sec-copilot-api:8000")
 
     assert load_frontend_backend_url_from_env() == "http://sec-copilot-api:8000"
+
+
+def test_frontend_bootstrap_loader_defaults_to_enabled(monkeypatch) -> None:
+    monkeypatch.delenv("SEC_COPILOT_UI_ENABLE_BOOTSTRAP", raising=False)
+
+    assert load_frontend_enable_bootstrap_from_env() is True
+
+
+def test_frontend_bootstrap_loader_honors_disable_override(monkeypatch) -> None:
+    monkeypatch.setenv("SEC_COPILOT_UI_ENABLE_BOOTSTRAP", "false")
+
+    assert load_frontend_enable_bootstrap_from_env() is False

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sec_copilot.config.runtime import read_env_positive_float, read_env_string
+from sec_copilot.config.runtime import read_env_bool, read_env_positive_float, read_env_string
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,12 @@ def load_frontend_backend_url_from_env() -> str:
     return read_env_string("SEC_COPILOT_UI_BACKEND_URL", "http://127.0.0.1:8000") or "http://127.0.0.1:8000"
 
 
+def load_frontend_enable_bootstrap_from_env() -> bool:
+    """Return whether the Streamlit UI should render corpus bootstrap controls."""
+
+    return read_env_bool("SEC_COPILOT_UI_ENABLE_BOOTSTRAP", True)
+
+
 def load_frontend_timeouts_from_env() -> FrontendTimeouts:
     """Load Streamlit timeout configuration from environment variables."""
 
@@ -37,5 +43,6 @@ def load_frontend_timeouts_from_env() -> FrontendTimeouts:
 __all__ = [
     "FrontendTimeouts",
     "load_frontend_backend_url_from_env",
+    "load_frontend_enable_bootstrap_from_env",
     "load_frontend_timeouts_from_env",
 ]

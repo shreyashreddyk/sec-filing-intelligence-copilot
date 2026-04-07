@@ -24,7 +24,11 @@ from sec_copilot.frontend.presenters import (
     safe_json,
 )
 from sec_copilot.config.runtime import load_runtime_paths_from_env
-from sec_copilot.frontend.runtime import load_frontend_backend_url_from_env, load_frontend_timeouts_from_env
+from sec_copilot.frontend.runtime import (
+    load_frontend_backend_url_from_env,
+    load_frontend_enable_bootstrap_from_env,
+    load_frontend_timeouts_from_env,
+)
 from sec_copilot.frontend.starter_queries import STARTER_QUERIES, starter_queries_by_label
 
 load_dotenv()
@@ -44,6 +48,7 @@ def main() -> None:
     )
     try:
         timeouts = load_frontend_timeouts_from_env()
+        bootstrap_enabled = load_frontend_enable_bootstrap_from_env()
     except ValueError as exc:
         st.title("SEC Filing Intelligence Copilot")
         st.error(str(exc))
@@ -51,12 +56,18 @@ def main() -> None:
     _init_session_state()
 
     st.title("SEC Filing Intelligence Copilot")
-    st.caption(
-        "Evidence-first local app over the live FastAPI backend. "
-        "Bootstrap the corpus, then inspect answers, citations, and retrieved evidence."
-    )
+    if bootstrap_enabled:
+        st.caption(
+            "Evidence-first local app over the live FastAPI backend. "
+            "Bootstrap the corpus, then inspect answers, citations, and retrieved evidence."
+        )
+    else:
+        st.caption(
+            "Evidence-first hosted app over the live FastAPI backend. "
+            "Refresh the corpus separately, then inspect answers, citations, and retrieved evidence."
+        )
 
-    backend_url = _render_sidebar()
+    backend_url = _render_sidebar(bootstrap_enabled)
     client = ApiClient(
         backend_url,
         status_timeout_seconds=timeouts.status_seconds,
@@ -74,7 +85,10 @@ def main() -> None:
     )
     configured_companies = configured_company_tickers(DEFAULT_COMPANIES_CONFIG_PATH)
     _render_status_panels(health_result, build_info_result)
-    _render_bootstrap_panel(client, configured_companies)
+    if bootstrap_enabled:
+        _render_bootstrap_panel(client, configured_companies)
+    else:
+        _render_refresh_panel()
     _render_query_form(client, scope_options, build_info_result)
     _render_results(build_info_result)
 
@@ -116,10 +130,13 @@ def _init_session_state() -> None:
         st.session_state.last_query_request = None
 
 
-def _render_sidebar() -> str:
+def _render_sidebar(bootstrap_enabled: bool) -> str:
     st.sidebar.header("App Controls")
     st.sidebar.text_input("Backend URL", key="backend_url")
-    st.sidebar.caption("Start the backend with `make serve-api`, then bootstrap the corpus from this UI.")
+    if bootstrap_enabled:
+        st.sidebar.caption("Start the backend with `make serve-api`, then bootstrap the corpus from this UI.")
+    else:
+        st.sidebar.caption("Hosted mode hides bootstrap controls. Refresh the corpus through the Kubernetes Job or CronJob.")
 
     example_by_label = starter_queries_by_label()
     selected_label = st.sidebar.selectbox(
@@ -251,6 +268,14 @@ def _render_bootstrap_panel(client: ApiClient, configured_companies: tuple[str, 
         st.rerun()
 
     _render_ingest_result(st.session_state.last_ingest_result)
+
+
+def _render_refresh_panel() -> None:
+    st.subheader("Corpus Refresh")
+    st.info(
+        "This hosted deployment hides the UI bootstrap form because the public API disables admin routes. "
+        "Run the separate Kubernetes corpus-refresh Job or CronJob to update the mounted corpus and Chroma state."
+    )
 
 
 def _render_query_form(client: ApiClient, scope_options, build_info_result) -> None:

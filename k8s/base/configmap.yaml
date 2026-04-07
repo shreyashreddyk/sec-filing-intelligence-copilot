@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sec-copilot-config
+  labels:
+    app.kubernetes.io/name: sec-copilot
+    app.kubernetes.io/part-of: sec-filing-intelligence-copilot
+data:
+  SEC_COPILOT_ENV: "production"
+  SEC_COPILOT_LOG_LEVEL: "INFO"
+  SEC_COPILOT_PROJECT_ROOT: "/app"
+  SEC_COPILOT_ENABLE_ADMIN_ROUTES: "false"
+  SEC_COPILOT_UI_BACKEND_URL: "http://sec-copilot-api:8000"
+  SEC_COPILOT_UI_ENABLE_BOOTSTRAP: "false"
+  SEC_COPILOT_COMPANIES_CONFIG_PATH: "/app/configs/companies.yaml"
+  SEC_COPILOT_REFRESH_FORM_TYPES: "10-K,10-Q"
+  SEC_COPILOT_REFRESH_ANNUAL_LIMIT: "2"
+  SEC_COPILOT_REFRESH_QUARTERLY_LIMIT: "4"
+  SEC_COPILOT_DATA_DIR: "/var/lib/sec-copilot/data"
+  SEC_COPILOT_CHROMA_DIR: "/var/lib/sec-copilot/chroma"

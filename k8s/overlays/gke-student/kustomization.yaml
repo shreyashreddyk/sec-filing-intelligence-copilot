@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: sec-copilot
+
+resources:
+  - ../../base
+
+images:
+  # Replace these Artifact Registry paths with your own GCP project and repository names.
+  - name: sec-copilot-api
+    newName: us-central1-docker.pkg.dev/your-gcp-project/your-artifact-repository/sec-copilot-api
+    newTag: latest
+  - name: sec-copilot-ui
+    newName: us-central1-docker.pkg.dev/your-gcp-project/your-artifact-repository/sec-copilot-ui
+    newTag: latest
+
+patches:
+  - path: api-deployment-gpu-patch.yaml
+  - path: api-hpa-cap-patch.yaml
+  - path: pvc-patch.yaml
+  - path: ui-deployment-cpu-patch.yaml

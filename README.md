@@ -3,6 +3,9 @@
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)
 ![Streamlit](https://img.shields.io/badge/ui-Streamlit-FF4B4B)
+![Docker](https://img.shields.io/badge/container-Docker-2496ED?logo=docker&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/orchestrator-Kubernetes-326CE5?logo=kubernetes&logoColor=white)
+![Grafana](https://img.shields.io/badge/observability-Grafana-F46800?logo=grafana&logoColor=white)
 ![CI](https://img.shields.io/badge/ci-GitHub%20Actions-2088FF)
 ![RAG Evaluation](https://img.shields.io/badge/focus-RAG%20Evaluation-6A5ACD)
 
@@ -32,6 +35,7 @@ The application supports live corpus bootstrap from SEC EDGAR, section-aware pro
 - Citation-enforced answers tied back to real retrieved chunks
 - Explicit abstention behavior when support is weak or coverage is missing
 - Typed FastAPI backend with health, readiness, coverage, ingest, retrieval, query, and eval surfaces
+- Split Docker images, GKE manifests, and Prometheus metrics that make the deployment story visible without pretending the API is already fully stateless
 - Reproducible evaluation artifacts stored under `artifacts/`
 - CI workflow that runs tests, executes an eval smoke subset, uploads eval outputs, and fails on regression
 
@@ -108,7 +112,7 @@ Local development uses the admin-capable FastAPI app. Container-safe public star
 ### Reliability and engineering discipline
 
 - Typed request and response models across the API layer
-- Health and build-info endpoints for operational visibility
+- Health, readiness, build-info, and Prometheus metrics endpoints for operational visibility
 - Readiness and coverage checks before query execution
 - Mock-provider fallback when `OPENAI_API_KEY` is unavailable
 - Unit and integration tests covering ingestion, retrieval, API contracts, prompts, evaluation, and frontend helpers
@@ -227,27 +231,80 @@ make eval-smoke
 make test
 ```
 
-## Container-Safe Startup
+## Deployment
 
-Use these commands when you want container-style startup behavior without local reload flags:
+### Local container test
 
-Public query API with admin routes disabled:
+The repo uses separate images because the FastAPI API owns model loading, dense retrieval, reranking, and optional GPU execution, while the Streamlit UI is a thin CPU-only client.
 
-```bash
-make serve-api-public
-```
+Both images stay stateless by default. Corpus artifacts, Chroma persistence, eval outputs, and model caches belong on mounted runtime paths rather than inside image layers.
 
-Internal or operator API with admin routes enabled:
+Build the images:
 
 ```bash
-make serve-api-admin
+docker build -f Dockerfile.api -t sec-copilot-api:local .
+docker build -f Dockerfile.ui -t sec-copilot-ui:local .
 ```
 
-Streamlit UI bound to all interfaces:
+Create a shared network and run the API with mounted state:
 
 ```bash
-make serve-ui-container UI_BACKEND_URL=http://sec-copilot-api:8000
+docker network create sec-copilot || true
+docker run --rm --name sec-copilot-api --network sec-copilot -p 8000:8000 --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/artifacts:/app/artifacts" sec-copilot-api:local
 ```
+
+Verify the public API surface:
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/metrics
+```
+
+Run the UI against the API container:
+
+```bash
+docker run --rm --name sec-copilot-ui --network sec-copilot -p 8501:8501 -e SEC_COPILOT_UI_BACKEND_URL=http://sec-copilot-api:8000 sec-copilot-ui:local
+```
+
+The API image defaults to `SEC_COPILOT_ENABLE_ADMIN_ROUTES=false`, so public container startup keeps ingest and eval routes out of the internet-facing surface. On Docker hosts with NVIDIA runtime support, add `--gpus all` to the API container when you want CUDA-backed Torch inside the container.
+
+### GKE deployment overview
+
+The deployment story in this repo is based on plain Kubernetes manifests under `k8s/base/` plus a GKE-focused overlay in `k8s/overlays/gke-student/`.
+
+Current GKE posture:
+
+- the UI is the public entrypoint through GKE Ingress
+- the API stays internal behind a `ClusterIP` service
+- the API and refresh workflow share one PVC-backed runtime state volume
+- the refresh CronJob is present but suspended by default for manual rollout safety
+- the GKE overlay places the API on GPU nodes and keeps the UI on CPU-only nodes
+
+Apply the GKE overlay after replacing placeholder image and secret values:
+
+```bash
+kubectl apply -f k8s/base/secret.example.yaml -n sec-copilot
+kubectl apply -k k8s/overlays/gke-student
+```
+
+For corpus refresh, trigger the Job or unsuspend the CronJob, then roll the API deployment after refresh completes. That restart step is required today because the API loads processed corpus state and Chroma state on startup rather than hot-reloading them at runtime.
+
+### Grafana Cloud integration overview
+
+The repo is instrumented for Grafana Cloud, but it does not claim a live Grafana stack or hosted dashboard URL yet.
+
+What already exists in the codebase:
+
+- `GET /metrics` on the FastAPI app
+- route-level request counters and latency histograms in `src/sec_copilot/api/metrics.py`
+- separate query, retrieval, ingest, and eval timing metrics
+- query error and abstention counters that are useful for grounded-RAG operations
+
+The intended hosted path is:
+
+1. use Grafana Cloud Kubernetes Monitoring to collect cluster-level signals from the GKE cluster
+2. scrape the FastAPI `/metrics` endpoint from inside the cluster
+3. correlate pod health and resource usage with API request latency, failure, and abstention behavior
 
 Relevant runtime env vars for deployment prep:
 
@@ -265,46 +322,82 @@ Relevant runtime env vars for deployment prep:
 - `SENTENCE_TRANSFORMERS_HOME`
 - `SEC_COPILOT_UI_BACKEND_URL`
 
-## Local Container Run
+## Scaling
 
-The repository now uses separate images because the FastAPI API owns model loading, dense retrieval, reranking, and optional GPU acceleration, while the Streamlit UI is a thin CPU-only client that can scale independently and stay much smaller.
+### Current scaling behavior
 
-Both images should stay stateless. Runtime corpus data, Chroma state, eval outputs, and model caches belong on mounted volumes or writable runtime paths rather than inside the Git repo or baked into image layers.
+The repo is deployment-oriented, but the serving tier is not yet a truly stateless web application.
 
-Build the images locally:
+Current behavior in the Kubernetes manifests:
 
-```bash
-docker build -f Dockerfile.api -t sec-copilot-api:local .
-docker build -f Dockerfile.ui -t sec-copilot-ui:local .
-```
+- `k8s/base/ui-hpa.yaml` allows the UI to scale from `1` to `3` replicas
+- `k8s/base/api-hpa.yaml` exists as the future API scaling interface
+- `k8s/overlays/gke-student/api-hpa-cap-patch.yaml` caps the API at `1` replica in the current GKE overlay
+- the API and corpus refresh workflow share a `ReadWriteOnce` PVC for processed corpus and Chroma state
 
-Create a shared Docker network once:
+That means the truthful current deployment model is one public API replica plus independently scalable UI replicas.
 
-```bash
-docker network create sec-copilot || true
-```
+### Why the UI scales more easily than the API
 
-Run the API with mounted state directories:
+The UI is easier to scale because it is mostly a stateless HTTP client:
 
-```bash
-docker run --rm --name sec-copilot-api --network sec-copilot -p 8000:8000 --env-file .env -v "$(pwd)/data:/app/data" -v "$(pwd)/artifacts:/app/artifacts" sec-copilot-api:local
-```
+- it does not own the processed corpus or Chroma persistence directory
+- it does not load embedding or reranker models
+- it does not need the shared PVC mounted into the pod
+- extra UI replicas mainly add request-handling capacity for Streamlit sessions
 
-On a Docker host with NVIDIA runtime support, add `--gpus all` to the API command so Torch can use CUDA inside the container.
+The API is heavier because it owns retrieval, reranking, answer generation dependencies, and startup-time loading of mounted runtime state.
 
-Verify the API health endpoint:
+### What must change for true stateless API scaling
 
-```bash
-curl http://127.0.0.1:8000/health
-```
+The API HPA only becomes a real scale-out lever after the current local-state boundary is externalized more deliberately.
 
-Run the UI against the API container:
+That future step requires:
 
-```bash
-docker run --rm --name sec-copilot-ui --network sec-copilot -p 8501:8501 -e SEC_COPILOT_UI_BACKEND_URL=http://sec-copilot-api:8000 sec-copilot-ui:local
-```
+- moving processed corpus artifacts to shared durable storage with a versioned handoff
+- replacing embedded local Chroma with a service-oriented or safely shared index layer
+- removing the startup-only reload contract that currently requires an API rollout after each refresh
+- keeping refresh as a separate batch workflow instead of sharing write-heavy work with public serving pods
+- load-testing multi-replica startup and concurrent query behavior before lifting the current one-replica cap
 
-The API image defaults to `SEC_COPILOT_ENABLE_ADMIN_ROUTES=false`, so local or internal admin workflows should override that explicitly instead of exposing ingest and eval routes by default.
+## Monitoring
+
+### App metrics
+
+The FastAPI layer already exposes Prometheus-compatible metrics at `GET /metrics`. The current app-level metrics are:
+
+- `sec_copilot_http_requests_total`
+- `sec_copilot_http_request_duration_seconds`
+- `sec_copilot_query_duration_seconds`
+- `sec_copilot_retrieval_debug_duration_seconds`
+- `sec_copilot_ingest_duration_seconds`
+- `sec_copilot_eval_duration_seconds`
+- `sec_copilot_query_errors_total`
+- `sec_copilot_query_abstentions_total`
+
+These metrics are designed to make grounded-RAG behavior visible, not just generic uptime.
+
+### Cluster metrics
+
+Grafana Cloud Kubernetes Monitoring should provide the cluster-level view around those app metrics:
+
+- pod CPU and memory usage for the API, UI, and refresh workloads
+- node pressure and scheduling behavior, especially for the GPU-backed API workload
+- readiness, liveness, and restart signals
+- HPA activity for the UI and the capped API HPA object
+- CronJob and one-off Job status for corpus refresh
+
+### What the Grafana dashboard should show
+
+For this repo, the most useful dashboard is a combined application and cluster view:
+
+- API request rate, p50, and p95 latency from the HTTP and query histograms
+- query failure counts and abstention trends
+- UI and API pod health, restart count, and resource usage
+- HPA behavior, especially whether only the UI is scaling while the API stays fixed at one replica
+- refresh-job activity alongside any API rollout needed to load the new corpus state
+
+There is no committed dashboard JSON in the repo yet. The honest current story is a Grafana-ready metrics surface plus Kubernetes manifests that give Grafana Cloud enough structure to visualize serving health and capacity once the collector side is connected.
 
 ## Repository Structure
 
@@ -317,6 +410,17 @@ tests/                Unit tests, integration tests, fixtures, and gold eval dat
 Makefile              Common local development and validation commands
 ```
 
+## Recommended Git Commands
+
+These commands commit and push the tracked README changes without including the local-only `docs/` trail:
+
+```bash
+git status --short
+git add README.md
+git commit -m "Polish README deployment story for Docker, GKE, and Grafana"
+git push origin deployment-prep-runtime
+```
+
 ## Current Limitations / Next Improvements
 
 - Filing scope is currently focused on `10-K` and `10-Q`; `8-K` support is not implemented yet
@@ -326,6 +430,7 @@ Makefile              Common local development and validation commands
 - The current company universe is focused on one sector to keep retrieval quality and evaluation tractable
 - The serving stack is still local-disk oriented: processed chunks live under `data/`, Chroma persists under `artifacts/chroma`, and the API loads the processed corpus into memory on startup
 - Horizontal Kubernetes scaling is not ready yet because multi-replica API pods would need shared state or externalized storage for the corpus and vector index
+- Grafana Cloud collector configuration is still an operator step rather than a committed in-repo deployment artifact
 
 ## What makes this production-ready?
 

@@ -42,6 +42,14 @@ test-live:
 index:
 	$(PYTHON) -m sec_copilot.retrieval.cli index
 
+.PHONY: refresh-corpus
+refresh-corpus:
+	$(PYTHON) -m sec_copilot.ops.corpus_refresh
+
+.PHONY: refresh-corpus-sample
+refresh-corpus-sample:
+	SEC_COPILOT_COMPANIES_CONFIG_PATH=configs/companies.sample.yaml $(PYTHON) -m sec_copilot.ops.corpus_refresh
+
 .PHONY: retrieve
 retrieve:
 	$(PYTHON) -m sec_copilot.retrieval.cli retrieve --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --debug

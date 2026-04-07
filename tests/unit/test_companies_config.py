@@ -19,6 +19,13 @@ def test_load_company_universe_reads_current_config() -> None:
     assert universe.companies[0].cik == "0001045810"
 
 
+def test_load_company_universe_reads_sample_config() -> None:
+    universe = load_company_universe(Path("configs/companies.sample.yaml"))
+
+    assert universe.universe_name == "semis_sample"
+    assert [company.ticker for company in universe.companies] == ["NVDA", "AMD", "INTC"]
+
+
 def test_load_company_universe_rejects_unknown_fields(tmp_path: Path) -> None:
     config_path = tmp_path / "companies.yaml"
     config_path.write_text(

@@ -6,6 +6,9 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
+from sec_copilot.ingest.constants import TARGET_FORMS
+from sec_copilot.utils.normalization import normalize_form_type
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -55,6 +58,18 @@ def read_env_positive_float(name: str, default: float) -> float:
     return value
 
 
+def read_env_non_negative_int(name: str, default: int) -> int:
+    """Read one non-negative integer environment variable."""
+
+    raw_value = read_env_string(name)
+    if raw_value is None:
+        return default
+    value = int(raw_value)
+    if value < 0:
+        raise ValueError(f"{name} must be greater than or equal to 0.")
+    return value
+
+
 def resolve_runtime_path(value: str | Path, *, project_root: Path | None = None) -> Path:
     """Resolve one runtime path without depending on the current working directory."""
 
@@ -88,6 +103,18 @@ class ApiRuntimeSettings:
     enable_admin_routes: bool = True
     openai_model_override: str | None = None
     chroma_dir_override: Path | None = None
+
+
+@dataclass(frozen=True)
+class CorpusRefreshSettings:
+    """Environment-driven settings for the corpus refresh workflow."""
+
+    companies_config_path: Path
+    data_dir: Path
+    chroma_dir: Path
+    form_types: tuple[str, ...] = ("10-K", "10-Q")
+    annual_limit: int = 2
+    quarterly_limit: int = 4
 
 
 def load_runtime_paths_from_env(project_root: Path | None = None) -> RuntimePaths:
@@ -147,14 +174,48 @@ def load_api_runtime_settings_from_env(project_root: Path | None = None) -> ApiR
     )
 
 
+def load_corpus_refresh_settings_from_env(project_root: Path | None = None) -> CorpusRefreshSettings:
+    """Load env-driven settings for the corpus refresh workflow."""
+
+    runtime_paths = load_runtime_paths_from_env(project_root=project_root)
+    return CorpusRefreshSettings(
+        companies_config_path=runtime_paths.companies_config_path,
+        data_dir=runtime_paths.data_dir,
+        chroma_dir=runtime_paths.chroma_dir,
+        form_types=_read_refresh_form_types("SEC_COPILOT_REFRESH_FORM_TYPES", default=TARGET_FORMS),
+        annual_limit=read_env_non_negative_int("SEC_COPILOT_REFRESH_ANNUAL_LIMIT", 2),
+        quarterly_limit=read_env_non_negative_int("SEC_COPILOT_REFRESH_QUARTERLY_LIMIT", 4),
+    )
+
+
+def _read_refresh_form_types(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Read one comma-separated refresh form-types variable."""
+
+    raw_value = read_env_string(name, ",".join(default)) or ",".join(default)
+    values = [segment.strip() for segment in raw_value.split(",") if segment.strip()]
+    if not values:
+        raise ValueError(f"{name} must contain at least one supported form type.")
+
+    normalized = tuple(dict.fromkeys(normalize_form_type(value) for value in values))
+    unsupported = [value for value in normalized if value not in TARGET_FORMS]
+    if unsupported:
+        raise ValueError(
+            f"{name} only supports {', '.join(TARGET_FORMS)} in this repo; got {', '.join(unsupported)}."
+        )
+    return normalized
+
+
 __all__ = [
+    "CorpusRefreshSettings",
     "ApiRuntimeSettings",
     "PROJECT_ROOT",
     "RuntimePaths",
     "default_project_root",
+    "load_corpus_refresh_settings_from_env",
     "load_api_runtime_settings_from_env",
     "load_runtime_paths_from_env",
     "read_env_bool",
+    "read_env_non_negative_int",
     "read_env_positive_float",
     "read_env_string",
     "resolve_runtime_path",

@@ -1,0 +1,13 @@
+universe_name: semis_sample
+sector: semiconductor_and_ai_infrastructure
+notes: Smaller dev and smoke-refresh corpus for cheaper validation runs.
+companies:
+  - name: NVIDIA
+    ticker: NVDA
+    cik: "0001045810"
+  - name: AMD
+    ticker: AMD
+    cik: "0000002488"
+  - name: Intel
+    ticker: INTC
+    cik: "0000050863"

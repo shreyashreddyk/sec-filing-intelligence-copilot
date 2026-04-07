@@ -6,15 +6,22 @@ import json
 import logging
 from typing import Any
 
+from sec_copilot.config.runtime import read_env_string
+
 
 LOGGER = logging.getLogger("sec_copilot.query")
 API_LOGGER = logging.getLogger("sec_copilot.api")
 
 
-def configure_logging(level: str = "INFO") -> None:
+def configure_logging(level: str | None = None) -> None:
     """Configure simple structured logging for local API runs."""
 
-    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO))
+    target_level = (level or read_env_string("SEC_COPILOT_LOG_LEVEL", "INFO") or "INFO").upper()
+    resolved_level = getattr(logging, target_level, logging.INFO)
+    logging.basicConfig(level=resolved_level)
+    logging.getLogger().setLevel(resolved_level)
+    API_LOGGER.setLevel(resolved_level)
+    LOGGER.setLevel(resolved_level)
 
 
 def log_api_event(event: dict[str, Any]) -> None:

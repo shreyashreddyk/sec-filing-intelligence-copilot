@@ -86,7 +86,7 @@ def _build_service(tmp_path: Path, *, data_dir: Path) -> CopilotApiService:
 
 def test_openapi_exposes_v5_routes(tmp_path: Path) -> None:
     service = _build_service(tmp_path, data_dir=tmp_path / "data")
-    app = create_app(service)
+    app = create_app(service, include_admin_routes=True)
 
     with TestClient(app) as client:
         payload = client.get("/openapi.json").json()
@@ -102,7 +102,7 @@ def test_openapi_exposes_v5_routes(tmp_path: Path) -> None:
 
 def test_service_starts_not_ready_and_query_returns_typed_503(tmp_path: Path) -> None:
     service = _build_service(tmp_path, data_dir=tmp_path / "data")
-    app = create_app(service)
+    app = create_app(service, include_admin_routes=True)
 
     with TestClient(app) as client:
         health_payload = client.get("/health").json()
@@ -127,7 +127,7 @@ def test_ingest_bootstrap_updates_readiness_and_query_and_debug_endpoints(tmp_pa
     monkeypatch.setattr("sec_copilot.ingest.pipeline.SecClient", FakeSecClient)
 
     service = _build_service(tmp_path, data_dir=data_dir)
-    app = create_app(service)
+    app = create_app(service, include_admin_routes=True)
 
     with TestClient(app) as client:
         ingest_response = client.post(
@@ -190,7 +190,7 @@ def test_ingest_bootstrap_updates_readiness_and_query_and_debug_endpoints(tmp_pa
 
 def test_eval_run_endpoint_smoke(tmp_path: Path) -> None:
     service = _build_service(tmp_path, data_dir=tmp_path / "data")
-    app = create_app(service)
+    app = create_app(service, include_admin_routes=True)
 
     with TestClient(app) as client:
         response = client.post(
@@ -209,3 +209,19 @@ def test_eval_run_endpoint_smoke(tmp_path: Path) -> None:
     assert payload["result"]["schema_version"] == "sec_eval_results.v1"
     assert payload["result"]["subset"] == "ci_smoke"
     assert payload["timings"]["total_ms"] >= 0.0
+
+
+def test_public_app_excludes_admin_routes(tmp_path: Path) -> None:
+    service = _build_service(tmp_path, data_dir=tmp_path / "data")
+    app = create_app(service, include_admin_routes=False)
+
+    with TestClient(app) as client:
+        payload = client.get("/openapi.json").json()
+
+    paths = payload["paths"]
+    assert "/health" in paths
+    assert "/build-info" in paths
+    assert "/query" in paths
+    assert "/retrieve/debug" in paths
+    assert "/ingest/run" not in paths
+    assert "/eval/run" not in paths

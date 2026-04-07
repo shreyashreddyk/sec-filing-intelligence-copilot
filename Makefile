@@ -1,7 +1,14 @@
+PYTHON ?= .venv/bin/python
+API_HOST ?= 0.0.0.0
+API_PORT ?= 8000
+UI_HOST ?= 0.0.0.0
+UI_PORT ?= 8501
+UI_BACKEND_URL ?= http://127.0.0.1:8000
+
 .PHONY: venv
 venv:
 	python3.12 -m venv .venv
-	.venv/bin/python -m pip install --upgrade pip
+	$(PYTHON) -m pip install --upgrade pip
 
 .PHONY: install-dev
 install-dev:
@@ -9,11 +16,11 @@ install-dev:
 
 .PHONY: test
 test:
-	.venv/bin/python -m pytest
+	$(PYTHON) -m pytest
 
 .PHONY: smoke
 smoke:
-	.venv/bin/python -m pytest tests/unit/test_smoke.py
+	$(PYTHON) -m pytest tests/unit/test_smoke.py
 
 .PHONY: lint
 lint:
@@ -21,40 +28,52 @@ lint:
 
 .PHONY: ingest
 ingest:
-	.venv/bin/python -m sec_copilot.ingest.cli run --companies-config configs/companies.yaml
+	$(PYTHON) -m sec_copilot.ingest.cli run --companies-config configs/companies.yaml
 
 .PHONY: ingest-sample
 ingest-sample:
-	.venv/bin/python -m sec_copilot.ingest.cli run --companies-config configs/companies.yaml --company NVDA --annual-limit 1 --quarterly-limit 0
+	$(PYTHON) -m sec_copilot.ingest.cli run --companies-config configs/companies.yaml --company NVDA --annual-limit 1 --quarterly-limit 0
 
 .PHONY: test-live
 test-live:
-	.venv/bin/python -m pytest -m live_sec
+	$(PYTHON) -m pytest -m live_sec
 
 .PHONY: index
 index:
-	.venv/bin/python -m sec_copilot.retrieval.cli index
+	$(PYTHON) -m sec_copilot.retrieval.cli index
 
 .PHONY: retrieve
 retrieve:
-	.venv/bin/python -m sec_copilot.retrieval.cli retrieve --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --debug
+	$(PYTHON) -m sec_copilot.retrieval.cli retrieve --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --debug
 
 .PHONY: answer-mock
 answer-mock:
-	.venv/bin/python -m sec_copilot.retrieval.cli answer --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --provider mock --debug
+	$(PYTHON) -m sec_copilot.retrieval.cli answer --question "What does NVIDIA say about export controls?" --ticker NVDA --form-type 10-K --provider mock --debug
 
 .PHONY: eval-smoke
 eval-smoke:
-	.venv/bin/python -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/ci_smoke_latest
+	$(PYTHON) -m sec_copilot.eval.cli run --subset ci_smoke --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/ci_smoke_latest
 
 .PHONY: eval-full
 eval-full:
-	.venv/bin/python -m sec_copilot.eval.cli run --subset full --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/full_latest
+	$(PYTHON) -m sec_copilot.eval.cli run --subset full --mode full --provider reference --score-backend deterministic --output-dir artifacts/evals/full_latest
 
 .PHONY: serve-api
 serve-api:
-	.venv/bin/python -m uvicorn sec_copilot.api.app:app --reload
+	$(PYTHON) -m uvicorn sec_copilot.api.app:admin_app --reload
 
 .PHONY: serve-ui
 serve-ui:
-	SEC_COPILOT_UI_BACKEND_URL=http://127.0.0.1:8000 .venv/bin/python -m streamlit run src/sec_copilot/frontend/streamlit_app.py --server.port 8501
+	SEC_COPILOT_UI_BACKEND_URL=http://127.0.0.1:8000 $(PYTHON) -m streamlit run src/sec_copilot/frontend/streamlit_app.py --server.port 8501
+
+.PHONY: serve-api-public
+serve-api-public:
+	SEC_COPILOT_ENV=production SEC_COPILOT_ENABLE_ADMIN_ROUTES=false $(PYTHON) -m uvicorn sec_copilot.api.app:public_app --host $(API_HOST) --port $(API_PORT)
+
+.PHONY: serve-api-admin
+serve-api-admin:
+	SEC_COPILOT_ENV=production SEC_COPILOT_ENABLE_ADMIN_ROUTES=true $(PYTHON) -m uvicorn sec_copilot.api.app:admin_app --host $(API_HOST) --port $(API_PORT)
+
+.PHONY: serve-ui-container
+serve-ui-container:
+	SEC_COPILOT_UI_BACKEND_URL=$(UI_BACKEND_URL) $(PYTHON) -m streamlit run src/sec_copilot/frontend/streamlit_app.py --server.address $(UI_HOST) --server.port $(UI_PORT)

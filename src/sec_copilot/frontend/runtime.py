@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+
+from sec_copilot.config.runtime import read_env_positive_float, read_env_string
 
 
 @dataclass(frozen=True)
@@ -16,25 +17,25 @@ class FrontendTimeouts:
     ingest_seconds: float = 900.0
 
 
+def load_frontend_backend_url_from_env() -> str:
+    """Load the backend base URL used by the Streamlit frontend."""
+
+    return read_env_string("SEC_COPILOT_UI_BACKEND_URL", "http://127.0.0.1:8000") or "http://127.0.0.1:8000"
+
+
 def load_frontend_timeouts_from_env() -> FrontendTimeouts:
     """Load Streamlit timeout configuration from environment variables."""
 
     return FrontendTimeouts(
-        status_seconds=_read_timeout_seconds("SEC_COPILOT_UI_STATUS_TIMEOUT_SECONDS", 10.0),
-        query_seconds=_read_timeout_seconds("SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS", 180.0),
-        retrieve_debug_seconds=_read_timeout_seconds("SEC_COPILOT_UI_RETRIEVE_DEBUG_TIMEOUT_SECONDS", 180.0),
-        ingest_seconds=_read_timeout_seconds("SEC_COPILOT_UI_INGEST_TIMEOUT_SECONDS", 900.0),
+        status_seconds=read_env_positive_float("SEC_COPILOT_UI_STATUS_TIMEOUT_SECONDS", 10.0),
+        query_seconds=read_env_positive_float("SEC_COPILOT_UI_QUERY_TIMEOUT_SECONDS", 180.0),
+        retrieve_debug_seconds=read_env_positive_float("SEC_COPILOT_UI_RETRIEVE_DEBUG_TIMEOUT_SECONDS", 180.0),
+        ingest_seconds=read_env_positive_float("SEC_COPILOT_UI_INGEST_TIMEOUT_SECONDS", 900.0),
     )
 
 
-def _read_timeout_seconds(name: str, default: float) -> float:
-    raw_value = os.getenv(name, "").strip()
-    if not raw_value:
-        return default
-    value = float(raw_value)
-    if value <= 0:
-        raise ValueError(f"{name} must be greater than 0 seconds.")
-    return value
-
-
-__all__ = ["FrontendTimeouts", "load_frontend_timeouts_from_env"]
+__all__ = [
+    "FrontendTimeouts",
+    "load_frontend_backend_url_from_env",
+    "load_frontend_timeouts_from_env",
+]

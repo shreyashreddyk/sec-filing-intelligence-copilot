@@ -45,7 +45,7 @@ def test_frontend_consumed_routes_are_present_in_openapi(tmp_path) -> None:
             default_form_types=["10-K", "10-Q"],
         )
     )
-    app = create_app(service=service)
+    app = create_app(service=service, include_admin_routes=True)
 
     with TestClient(app) as client:
         payload = client.get("/openapi.json").json()

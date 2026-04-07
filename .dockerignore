@@ -1,0 +1,14 @@
+.git
+.github
+.codex
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+artifacts
+data
+docs
+.DS_Store

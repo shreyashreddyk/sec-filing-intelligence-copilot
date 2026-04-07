@@ -25,6 +25,7 @@ from sec_copilot.api.models import (
     ServiceNotReadyResponse,
 )
 from sec_copilot.api.service import CopilotApiService
+from sec_copilot.config.runtime import load_api_runtime_settings_from_env
 from sec_copilot.ingest.pipeline import IngestionPreflightError
 from sec_copilot.utils.logging import configure_logging, log_api_event
 
@@ -34,17 +35,19 @@ load_dotenv()
 def create_app(
     service: CopilotApiService | None = None,
     *,
-    include_admin_routes: bool = True,
+    include_admin_routes: bool | None = None,
     title: str = "SEC Filing Intelligence Copilot",
     description: str = "Typed FastAPI backend for grounded SEC filing retrieval, query, ingestion, and evaluation.",
 ) -> FastAPI:
     """Create the FastAPI app with injectable service state."""
 
+    runtime_settings = load_api_runtime_settings_from_env()
     api_service = service or CopilotApiService()
+    admin_routes_enabled = runtime_settings.enable_admin_routes if include_admin_routes is None else include_admin_routes
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        configure_logging()
+        configure_logging(api_service.settings.log_level)
         api_service.initialize()
         app.state.service = api_service
         yield
@@ -115,7 +118,7 @@ def create_app(
             return JSONResponse(status_code=409, content=result.model_dump(mode="json"))
         return result
 
-    if include_admin_routes:
+    if admin_routes_enabled:
 
         @app.post("/ingest/run", response_model=IngestRunResponse)
         def ingest_run(request: IngestRunRequest) -> IngestRunResponse:
@@ -139,6 +142,8 @@ def create_app(
 
 
 app = create_app()
+public_app = create_app(include_admin_routes=False)
+admin_app = create_app(include_admin_routes=True)
 
 
-__all__ = ["app", "create_app"]
+__all__ = ["admin_app", "app", "create_app", "public_app"]

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
-from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -25,13 +23,14 @@ from sec_copilot.frontend.presenters import (
     resolve_scope_options,
     safe_json,
 )
-from sec_copilot.frontend.runtime import load_frontend_timeouts_from_env
+from sec_copilot.config.runtime import load_runtime_paths_from_env
+from sec_copilot.frontend.runtime import load_frontend_backend_url_from_env, load_frontend_timeouts_from_env
 from sec_copilot.frontend.starter_queries import STARTER_QUERIES, starter_queries_by_label
 
 load_dotenv()
 
-DEFAULT_BACKEND_URL = os.getenv("SEC_COPILOT_UI_BACKEND_URL", "http://127.0.0.1:8000")
-DEFAULT_COMPANIES_CONFIG_PATH = Path("configs/companies.yaml")
+DEFAULT_BACKEND_URL = load_frontend_backend_url_from_env()
+DEFAULT_COMPANIES_CONFIG_PATH = load_runtime_paths_from_env().companies_config_path
 DEFAULT_FORM_TYPES = ("10-K", "10-Q")
 
 

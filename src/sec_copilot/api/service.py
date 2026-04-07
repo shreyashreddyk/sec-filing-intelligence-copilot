@@ -46,9 +46,13 @@ from sec_copilot.api.models import (
 from sec_copilot.config import (
     PromptCatalog,
     RetrievalConfig,
+    default_project_root,
+    load_api_runtime_settings_from_env,
     load_company_universe,
     load_prompt_catalog,
     load_retrieval_config,
+    load_runtime_paths_from_env,
+    resolve_runtime_path,
 )
 from sec_copilot.eval.artifacts import resolve_output_dir, write_eval_artifacts
 from sec_copilot.eval.config import load_eval_config
@@ -81,11 +85,13 @@ class ApiSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     service_name: str = "sec-filing-intelligence-copilot"
-    data_dir: Path = Field(default_factory=lambda: Path(os.getenv("SEC_COPILOT_DATA_DIR", "data")))
-    companies_config_path: Path = Path("configs/companies.yaml")
-    retrieval_config_path: Path = Path("configs/retrieval.yaml")
-    prompts_config_path: Path = Path("configs/prompts.yaml")
-    eval_config_path: Path = Path("configs/eval.yaml")
+    project_root: Path = Field(default_factory=default_project_root)
+    data_dir: Path = Field(default_factory=lambda: load_runtime_paths_from_env().data_dir)
+    companies_config_path: Path = Field(default_factory=lambda: load_runtime_paths_from_env().companies_config_path)
+    retrieval_config_path: Path = Field(default_factory=lambda: load_runtime_paths_from_env().retrieval_config_path)
+    prompts_config_path: Path = Field(default_factory=lambda: load_runtime_paths_from_env().prompts_config_path)
+    eval_config_path: Path = Field(default_factory=lambda: load_runtime_paths_from_env().eval_config_path)
+    log_level: str = Field(default_factory=lambda: load_api_runtime_settings_from_env().log_level)
     strict_coverage: bool = True
     mock_fallback_when_openai_missing: bool = True
     default_annual_limit: int = Field(default=2, ge=0)
@@ -167,7 +173,7 @@ class CopilotApiService:
     def refresh_state(self, *, load_query_runtime: bool) -> ApiState:
         """Refresh the persisted state and optionally preflight the query runtime."""
 
-        config = load_retrieval_config(self.settings.retrieval_config_path)
+        config = self._load_runtime_retrieval_config()
         prompt_catalog = load_prompt_catalog(self.settings.prompts_config_path)
         default_target_scope = self._default_target_scope()
         store = ProcessedChunkStore.load(self.settings.data_dir)
@@ -430,7 +436,7 @@ class CopilotApiService:
 
         index_build: IndexBuildResult | None = None
         index_ms = 0.0
-        config = load_retrieval_config(self.settings.retrieval_config_path)
+        config = self._load_runtime_retrieval_config()
         store = ProcessedChunkStore.load(self.settings.data_dir)
         if len(store) > 0:
             index_started_at = perf_counter()
@@ -501,14 +507,22 @@ class CopilotApiService:
         """Run the offline eval harness and return the typed result."""
 
         started_at = perf_counter()
-        eval_config = load_eval_config(self.settings.eval_config_path)
-        retrieval_config = load_retrieval_config(self.settings.retrieval_config_path)
+        eval_config = self._load_runtime_eval_config()
+        retrieval_config = self._load_runtime_retrieval_config()
         prompt_catalog = load_prompt_catalog(self.settings.prompts_config_path)
         dataset = load_eval_dataset(eval_config.dataset_path)
 
         resolved = self._resolve_eval_request(request, eval_config)
         self._validate_eval_request(resolved, request)
-        output_dir = resolve_output_dir(eval_config.output_root, resolved["output_dir"])
+        requested_output_dir = resolved["output_dir"]
+        output_dir = resolve_output_dir(
+            eval_config.output_root,
+            (
+                resolve_runtime_path(str(requested_output_dir), project_root=self.settings.project_root)
+                if requested_output_dir is not None
+                else None
+            ),
+        )
         result = run_eval(
             eval_config=eval_config,
             retrieval_config=retrieval_config,
@@ -571,6 +585,38 @@ class CopilotApiService:
             pipeline=pipeline,
             provider_name=provider_name,
             reranker=reranker,
+        )
+
+    def _load_runtime_retrieval_config(self) -> RetrievalConfig:
+        """Load retrieval config with runtime path and provider overrides applied."""
+
+        config = load_retrieval_config(self.settings.retrieval_config_path)
+        runtime_settings = load_api_runtime_settings_from_env(project_root=self.settings.project_root)
+        persist_directory = runtime_settings.chroma_dir_override or resolve_runtime_path(
+            config.index.persist_directory,
+            project_root=self.settings.project_root,
+        )
+        provider_update: dict[str, object] = {}
+        if runtime_settings.openai_model_override is not None:
+            provider_update["openai_model"] = runtime_settings.openai_model_override
+
+        return config.model_copy(
+            update={
+                "index": config.index.model_copy(update={"persist_directory": str(persist_directory)}),
+                "provider": config.provider.model_copy(update=provider_update) if provider_update else config.provider,
+            }
+        )
+
+    def _load_runtime_eval_config(self):
+        """Load eval config with runtime paths resolved from the repo root."""
+
+        eval_config = load_eval_config(self.settings.eval_config_path)
+        return eval_config.model_copy(
+            update={
+                "dataset_path": str(resolve_runtime_path(eval_config.dataset_path, project_root=self.settings.project_root)),
+                "corpus_path": str(resolve_runtime_path(eval_config.corpus_path, project_root=self.settings.project_root)),
+                "output_root": str(resolve_runtime_path(eval_config.output_root, project_root=self.settings.project_root)),
+            }
         )
 
     def _default_provider_factory(

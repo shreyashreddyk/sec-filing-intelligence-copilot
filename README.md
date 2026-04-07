@@ -80,14 +80,21 @@ flowchart LR
 
 ### API surface
 
-The backend exposes typed endpoints for both user-facing and operational workflows:
+The backend exposes typed endpoints for both user-facing and operator workflows.
+
+Public query-serving surface:
 
 - `GET /health`
 - `GET /build-info`
-- `POST /ingest/run`
 - `POST /query`
 - `POST /retrieve/debug`
+
+Admin-only surface for local bootstrap or internal operations:
+
+- `POST /ingest/run`
 - `POST /eval/run`
+
+Local development uses the admin-capable FastAPI app. Container-safe public startup should use the public FastAPI app that excludes admin routes.
 
 ### Retrieval and answer pipeline
 
@@ -181,6 +188,8 @@ Edit `.env` before running the live workflow. Set `SEC_USER_AGENT` to your real 
 make serve-api
 ```
 
+This local development target starts the admin-capable FastAPI app so the UI can bootstrap filings with `/ingest/run`.
+
 ### 3. Start the UI
 
 ```bash
@@ -218,6 +227,40 @@ make eval-smoke
 make test
 ```
 
+## Container-Safe Startup
+
+Use these commands when you want container-style startup behavior without local reload flags:
+
+Public query API with admin routes disabled:
+
+```bash
+make serve-api-public
+```
+
+Internal or operator API with admin routes enabled:
+
+```bash
+make serve-api-admin
+```
+
+Streamlit UI bound to all interfaces:
+
+```bash
+make serve-ui-container UI_BACKEND_URL=http://sec-copilot-api:8000
+```
+
+Relevant runtime env vars for deployment prep:
+
+- `SEC_COPILOT_ENV`
+- `SEC_COPILOT_ENABLE_ADMIN_ROUTES`
+- `SEC_COPILOT_LOG_LEVEL`
+- `SEC_COPILOT_DATA_DIR`
+- `SEC_COPILOT_CHROMA_DIR`
+- `SEC_COPILOT_OPENAI_MODEL`
+- `OPENAI_API_KEY`
+- `HF_TOKEN`
+- `SEC_COPILOT_UI_BACKEND_URL`
+
 ## Repository Structure
 
 ```text
@@ -236,6 +279,8 @@ Makefile              Common local development and validation commands
 - Ingest and query operations are synchronous today rather than background-job driven
 - The evaluation corpus is intentionally smaller than the full live research surface
 - The current company universe is focused on one sector to keep retrieval quality and evaluation tractable
+- The serving stack is still local-disk oriented: processed chunks live under `data/`, Chroma persists under `artifacts/chroma`, and the API loads the processed corpus into memory on startup
+- Horizontal Kubernetes scaling is not ready yet because multi-replica API pods would need shared state or externalized storage for the corpus and vector index
 
 ## What makes this production-ready?
 

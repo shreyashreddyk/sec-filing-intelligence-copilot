@@ -78,7 +78,7 @@ def test_frontend_client_parses_ingest_and_query_success_with_shared_models(tmp_
         default_form_types=["10-K", "10-Q"],
     )
     service = _build_service(settings)
-    app = create_app(service=service)
+    app = create_app(service=service, include_admin_routes=True)
 
     with TestClient(app) as client:
         ingest_payload = client.post(

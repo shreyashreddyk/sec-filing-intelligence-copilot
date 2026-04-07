@@ -93,6 +93,7 @@ def test_openapi_exposes_v5_routes(tmp_path: Path) -> None:
 
     paths = payload["paths"]
     assert "/health" in paths
+    assert "/readyz" in paths
     assert "/build-info" in paths
     assert "/query" in paths
     assert "/retrieve/debug" in paths
@@ -106,6 +107,7 @@ def test_service_starts_not_ready_and_query_returns_typed_503(tmp_path: Path) ->
 
     with TestClient(app) as client:
         health_payload = client.get("/health").json()
+        readiness_response = client.get("/readyz")
         build_info_payload = client.get("/build-info").json()
         query_response = client.post(
             "/query",
@@ -115,6 +117,8 @@ def test_service_starts_not_ready_and_query_returns_typed_503(tmp_path: Path) ->
     assert health_payload["retrieve_ready"] is False
     assert health_payload["query_ready"] is False
     assert health_payload["index_status"] == "missing"
+    assert readiness_response.status_code == 503
+    assert readiness_response.json()["status"] == "not_ready"
     assert build_info_payload["coverage_status"] == "uninitialized"
     assert query_response.status_code == 503
     assert query_response.json()["error_type"] == "service_not_ready"
@@ -141,6 +145,7 @@ def test_ingest_bootstrap_updates_readiness_and_query_and_debug_endpoints(tmp_pa
             },
         )
         health_payload = client.get("/health").json()
+        readiness_response = client.get("/readyz")
         query_response = client.post(
             "/query",
             json={
@@ -172,6 +177,8 @@ def test_ingest_bootstrap_updates_readiness_and_query_and_debug_endpoints(tmp_pa
     assert ingest_payload["coverage_state"]["index_status"] == "fresh"
     assert health_payload["retrieve_ready"] is True
     assert health_payload["query_ready"] is True
+    assert readiness_response.status_code == 200
+    assert readiness_response.json()["status"] == "ready"
 
     assert query_response.status_code == 200
     assert query_payload["coverage_status"] == "covered"
@@ -211,17 +218,109 @@ def test_eval_run_endpoint_smoke(tmp_path: Path) -> None:
     assert payload["timings"]["total_ms"] >= 0.0
 
 
+def test_metrics_endpoint_exposes_custom_metric_families(tmp_path: Path, monkeypatch) -> None:
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("SEC_USER_AGENT", "Shreyash Reddy shreyash@sec-copilot.dev")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("sec_copilot.ingest.pipeline.SecClient", FakeSecClient)
+
+    service = _build_service(tmp_path, data_dir=data_dir)
+    app = create_app(service, include_admin_routes=True)
+
+    with TestClient(app) as client:
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+        assert health_response.json()["status"] == "ok"
+
+        not_ready_query = client.post(
+            "/query",
+            json={"question": "What export control risks does NVIDIA describe?", "filters": {"tickers": ["NVDA"]}},
+        )
+        assert not_ready_query.status_code == 503
+
+        ingest_response = client.post(
+            "/ingest/run",
+            json={
+                "companies": ["NVDA"],
+                "form_types": ["10-K"],
+                "annual_limit": 1,
+                "quarterly_limit": 0,
+                "index_mode": "rebuild",
+            },
+        )
+        assert ingest_response.status_code == 200
+
+        ready_response = client.get("/readyz")
+        assert ready_response.status_code == 200
+        assert ready_response.json()["status"] == "ready"
+
+        debug_response = client.post(
+            "/retrieve/debug",
+            json={
+                "question": "What export control risks does NVIDIA describe?",
+                "filters": {"tickers": ["NVDA"], "form_types": ["10-K"]},
+            },
+        )
+        assert debug_response.status_code == 200
+
+        abstained_query = client.post(
+            "/query",
+            json={
+                "question": "How many penguins are mentioned in the filing?",
+                "filters": {"tickers": ["NVDA"], "form_types": ["10-K"]},
+            },
+        )
+        assert abstained_query.status_code == 200
+        assert abstained_query.json()["abstained"] is True
+
+        eval_response = client.post(
+            "/eval/run",
+            json={
+                "subset": "ci_smoke",
+                "mode": "full",
+                "provider": "reference",
+                "score_backend": "deterministic",
+                "output_dir": str(tmp_path / "eval_output"),
+            },
+        )
+        assert eval_response.status_code == 200
+
+        metrics_response = client.get("/metrics")
+
+    metrics_text = metrics_response.text
+    assert metrics_response.status_code == 200
+    assert metrics_response.headers["content-type"].startswith("text/plain")
+    assert "# HELP sec_copilot_http_requests_total" in metrics_text
+    assert "# TYPE sec_copilot_http_request_duration_seconds histogram" in metrics_text
+    assert "# TYPE sec_copilot_query_duration_seconds histogram" in metrics_text
+    assert "# TYPE sec_copilot_retrieval_debug_duration_seconds histogram" in metrics_text
+    assert "# TYPE sec_copilot_ingest_duration_seconds histogram" in metrics_text
+    assert "# TYPE sec_copilot_eval_duration_seconds histogram" in metrics_text
+    assert 'sec_copilot_query_errors_total{error_type="service_not_ready"}' in metrics_text
+    assert 'sec_copilot_query_abstentions_total{reason_code="' in metrics_text
+    assert 'path="/metrics"' not in metrics_text
+
+
 def test_public_app_excludes_admin_routes(tmp_path: Path) -> None:
     service = _build_service(tmp_path, data_dir=tmp_path / "data")
     app = create_app(service, include_admin_routes=False)
 
     with TestClient(app) as client:
         payload = client.get("/openapi.json").json()
+        health_response = client.get("/health")
+        readiness_response = client.get("/readyz")
+        ingest_response = client.post("/ingest/run", json={})
+        eval_response = client.post("/eval/run", json={})
 
     paths = payload["paths"]
     assert "/health" in paths
+    assert "/readyz" in paths
     assert "/build-info" in paths
     assert "/query" in paths
     assert "/retrieve/debug" in paths
     assert "/ingest/run" not in paths
     assert "/eval/run" not in paths
+    assert health_response.status_code == 200
+    assert readiness_response.status_code == 503
+    assert ingest_response.status_code == 404
+    assert eval_response.status_code == 404

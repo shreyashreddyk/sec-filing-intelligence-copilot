@@ -38,6 +38,7 @@ from sec_copilot.api.models import (
     ProviderMode,
     QuerySuccessResponse,
     QueryTimings,
+    ReadinessResponse,
     RetrievalDebugResponse,
     RetrievalTimings,
     RunSummaryModel,
@@ -295,6 +296,22 @@ class CopilotApiService:
 
         state = self.state
         return HealthResponse(
+            service=self.settings.service_name,
+            version=__version__,
+            retrieve_ready=state.retrieve_ready,
+            query_ready=state.query_ready,
+            index_status=state.coverage_state.index_status,
+            last_index_refresh_at=state.coverage_state.last_index_refresh_at,
+            last_ingest_completed_at=state.coverage_state.last_ingest_completed_at,
+            warnings=state.warnings,
+        )
+
+    def readiness(self) -> ReadinessResponse:
+        """Return the compact readiness payload used by Kubernetes probes."""
+
+        state = self.state
+        return ReadinessResponse(
+            status="ready" if state.query_ready else "not_ready",
             service=self.settings.service_name,
             version=__version__,
             retrieve_ready=state.retrieve_ready,

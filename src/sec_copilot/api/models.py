@@ -66,6 +66,22 @@ class HealthResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ReadinessResponse(BaseModel):
+    """Compact readiness response for Kubernetes probes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ready", "not_ready"]
+    service: str
+    version: str
+    retrieve_ready: bool
+    query_ready: bool
+    index_status: IndexStatus
+    last_index_refresh_at: datetime | None = None
+    last_ingest_completed_at: datetime | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class BuildInfoResponse(BaseModel):
     """Detailed build, runtime, and corpus state response."""
 

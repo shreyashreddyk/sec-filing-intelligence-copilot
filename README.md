@@ -283,20 +283,39 @@ Current GKE posture:
 
 The first cloud rollout can run cleanly in CPU fallback mode if GKE GPU node-pool creation is blocked by zonal capacity. That fallback changes API scheduling only. It does not change the public exposure model, the PVC-backed state contract, or the separate corpus refresh workflow.
 
-Apply the CPU fallback overlay after replacing placeholder image and secret values:
+Cloud Shell runbook for the first CPU fallback deployment:
 
 ```bash
-kubectl apply -f k8s/base/secret.example.yaml -n sec-copilot
+kubectl apply -f k8s/base/namespace.yaml
+cp k8s/base/secret.example.yaml /tmp/sec-copilot-secrets.yaml
+# Edit /tmp/sec-copilot-secrets.yaml with real values before applying it.
+kubectl apply -f /tmp/sec-copilot-secrets.yaml -n sec-copilot
 kubectl apply -k k8s/overlays/gke-cpu-fallback
+kubectl rollout status deployment/sec-copilot-api -n sec-copilot
+kubectl rollout status deployment/sec-copilot-ui -n sec-copilot
+kubectl get svc sec-copilot-api sec-copilot-ui -n sec-copilot
+kubectl get ingress sec-copilot-ui -n sec-copilot
+kubectl get cronjob sec-copilot-corpus-refresh -n sec-copilot
 ```
 
 When GPU capacity is available later, switch the API back to the GPU-targeted overlay:
 
 ```bash
 kubectl apply -k k8s/overlays/gke-student
+kubectl rollout status deployment/sec-copilot-api -n sec-copilot
 ```
 
 For corpus refresh, trigger the Job or unsuspend the CronJob, then roll the API deployment after refresh completes. That restart step is required today because the API loads processed corpus state and Chroma state on startup rather than hot-reloading them at runtime.
+
+If the API pod is `Pending`, inspect the scheduler events:
+
+```bash
+kubectl get pods -n sec-copilot
+kubectl describe pod <api-pod-name> -n sec-copilot
+kubectl get events -n sec-copilot --sort-by=.lastTimestamp | tail -n 20
+```
+
+In CPU fallback mode, you should not see GPU-related blockers such as missing `nvidia.com/gpu`, `cloud.google.com/gke-accelerator`, or `cloud.google.com/gke-nodepool=gpu-pool`. Remaining blockers are more likely to be CPU or memory pressure, PVC attachment, or image-pull issues.
 
 ### Grafana Cloud integration overview
 

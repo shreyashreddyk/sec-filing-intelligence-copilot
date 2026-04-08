@@ -3,6 +3,3 @@ kind: Kustomization
 
 resources:
   - ../gke-common
-
-patches:
-  - path: api-deployment-gpu-patch.yaml

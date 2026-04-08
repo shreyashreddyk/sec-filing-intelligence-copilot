@@ -270,7 +270,7 @@ The API image defaults to `SEC_COPILOT_ENABLE_ADMIN_ROUTES=false`, so public con
 
 ### GKE deployment overview
 
-The deployment story in this repo is based on plain Kubernetes manifests under `k8s/base/` plus a GKE-focused overlay in `k8s/overlays/gke-student/`.
+The deployment story in this repo is based on plain Kubernetes manifests under `k8s/base/` plus GKE-focused overlays under `k8s/overlays/`.
 
 Current GKE posture:
 
@@ -278,12 +278,21 @@ Current GKE posture:
 - the API stays internal behind a `ClusterIP` service
 - the API and refresh workflow share one PVC-backed runtime state volume
 - the refresh CronJob is present but suspended by default for manual rollout safety
-- the GKE overlay places the API on GPU nodes and keeps the UI on CPU-only nodes
+- `k8s/overlays/gke-cpu-fallback/` is the recommended first live deployment path when a GPU node pool is unavailable
+- `k8s/overlays/gke-student/` preserves the future GPU-targeted API path while keeping the UI on CPU-only nodes
 
-Apply the GKE overlay after replacing placeholder image and secret values:
+The first cloud rollout can run cleanly in CPU fallback mode if GKE GPU node-pool creation is blocked by zonal capacity. That fallback changes API scheduling only. It does not change the public exposure model, the PVC-backed state contract, or the separate corpus refresh workflow.
+
+Apply the CPU fallback overlay after replacing placeholder image and secret values:
 
 ```bash
 kubectl apply -f k8s/base/secret.example.yaml -n sec-copilot
+kubectl apply -k k8s/overlays/gke-cpu-fallback
+```
+
+When GPU capacity is available later, switch the API back to the GPU-targeted overlay:
+
+```bash
 kubectl apply -k k8s/overlays/gke-student
 ```
 
@@ -332,7 +341,7 @@ Current behavior in the Kubernetes manifests:
 
 - `k8s/base/ui-hpa.yaml` allows the UI to scale from `1` to `3` replicas
 - `k8s/base/api-hpa.yaml` exists as the future API scaling interface
-- `k8s/overlays/gke-student/api-hpa-cap-patch.yaml` caps the API at `1` replica in the current GKE overlay
+- `k8s/overlays/gke-common/api-hpa-cap-patch.yaml` caps the API at `1` replica in both the CPU fallback and GPU overlays
 - the API and corpus refresh workflow share a `ReadWriteOnce` PVC for processed corpus and Chroma state
 
 That means the truthful current deployment model is one public API replica plus independently scalable UI replicas.
@@ -382,7 +391,7 @@ These metrics are designed to make grounded-RAG behavior visible, not just gener
 Grafana Cloud Kubernetes Monitoring should provide the cluster-level view around those app metrics:
 
 - pod CPU and memory usage for the API, UI, and refresh workloads
-- node pressure and scheduling behavior, especially for the GPU-backed API workload
+- node pressure and scheduling behavior for the API workload in either CPU fallback or future GPU mode
 - readiness, liveness, and restart signals
 - HPA activity for the UI and the capped API HPA object
 - CronJob and one-off Job status for corpus refresh

@@ -173,6 +173,20 @@ This repository includes concrete implementation evidence beyond source code:
 
 The current indexed coverage artifact shows a fresh local index over the five-company universe with `10` documents and `1611` chunks across `10-K` and `10-Q` filings.
 
+## Validated GKE Path
+
+The repo now includes the exact deployment path that was validated live on GKE:
+
+- build and push the API and UI images with [`cloudbuild.yaml`](cloudbuild.yaml) into Artifact Registry
+- deploy the CPU-first overlay at [`k8s/overlays/gke-cpu-fallback`](k8s/overlays/gke-cpu-fallback)
+- keep the UI public through GKE Ingress and the API internal behind `ClusterIP`
+- create the shared runtime PVC through the quota-safer `pd-standard-rwo` StorageClass in the GKE overlay
+- bootstrap the first live corpus with `kubectl create job --from=cronjob/sec-copilot-corpus-refresh ...`
+- restart the API after refresh so the serving pod reloads the rebuilt corpus and Chroma state
+- expose FastAPI `/metrics` through Grafana-ready service annotations in the GKE overlay
+
+The full operator walkthrough, including the failure/debug path that was fixed during the first rollout, lives in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 ## Quickstart
 
 ### 1. Set up the environment
@@ -246,6 +260,8 @@ docker build -f Dockerfile.api -t sec-copilot-api:local .
 docker build -f Dockerfile.ui -t sec-copilot-ui:local .
 ```
 
+The Dockerfiles pin `torch==2.4.1` directly and use [`constraints/docker-runtime.txt`](constraints/docker-runtime.txt) to hold the validated deployment-only `sentence-transformers` and `transformers` versions that passed the first GKE rollout.
+
 Create a shared network and run the API with mounted state:
 
 ```bash
@@ -270,33 +286,53 @@ The API image defaults to `SEC_COPILOT_ENABLE_ADMIN_ROUTES=false`, so public con
 
 ### GKE deployment overview
 
-The deployment story in this repo is based on plain Kubernetes manifests under `k8s/base/` plus GKE-focused overlays under `k8s/overlays/`.
+The deployment story in this repo is based on plain Kubernetes manifests under `k8s/base/`, GKE-focused overlays under `k8s/overlays/`, and a two-image Cloud Build flow in [`cloudbuild.yaml`](cloudbuild.yaml).
 
-Current GKE posture:
+Current validated GKE posture:
 
 - the UI is the public entrypoint through GKE Ingress
 - the API stays internal behind a `ClusterIP` service
 - the API and refresh workflow share one PVC-backed runtime state volume
-- the refresh CronJob is present but suspended by default for manual rollout safety
-- `k8s/overlays/gke-cpu-fallback/` is the recommended first live deployment path when a GPU node pool is unavailable
-- `k8s/overlays/gke-student/` preserves the future GPU-targeted API path while keeping the UI on CPU-only nodes
+- the refresh CronJob is present but suspended by default for safe manual rollout
+- [`k8s/overlays/gke-cpu-fallback`](k8s/overlays/gke-cpu-fallback) is the recommended first live deployment path
+- the GKE overlay creates `pd-standard-rwo`, a CSI-backed HDD StorageClass that avoids assuming SSD quota is available
+- the standalone [`k8s/base/corpus-refresh-job.yaml`](k8s/base/corpus-refresh-job.yaml) file is a reference template, but the first live bootstrap should come from `kubectl create job --from=cronjob/sec-copilot-corpus-refresh ...` so the job inherits overlay image rewrites
 
-The first cloud rollout can run cleanly in CPU fallback mode if GKE GPU node-pool creation is blocked by zonal capacity. That fallback changes API scheduling only. It does not change the public exposure model, the PVC-backed state contract, or the separate corpus refresh workflow.
-
-Cloud Shell runbook for the first CPU fallback deployment:
+Build and push the images from Cloud Shell:
 
 ```bash
-kubectl apply -f k8s/base/namespace.yaml
-cp k8s/base/secret.example.yaml /tmp/sec-copilot-secrets.yaml
-# Edit /tmp/sec-copilot-secrets.yaml with real values before applying it.
-kubectl apply -f /tmp/sec-copilot-secrets.yaml -n sec-copilot
-kubectl apply -k k8s/overlays/gke-cpu-fallback
-kubectl rollout status deployment/sec-copilot-api -n sec-copilot
-kubectl rollout status deployment/sec-copilot-ui -n sec-copilot
-kubectl get svc sec-copilot-api sec-copilot-ui -n sec-copilot
-kubectl get ingress sec-copilot-ui -n sec-copilot
-kubectl get cronjob sec-copilot-corpus-refresh -n sec-copilot
+export REGION="us-west1"
+export AR_REPO="sec-copilot"
+export IMAGE_TAG="$(git rev-parse --short HEAD)"
+
+gcloud builds submit \
+  --region="$REGION" \
+  --config=cloudbuild.yaml \
+  --substitutions=_REGION="$REGION",_AR_REPO="$AR_REPO",_IMAGE_TAG="$IMAGE_TAG"
 ```
+
+Apply the first live CPU fallback deployment:
+
+```bash
+kubectl create namespace sec-copilot --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic sec-copilot-secrets \
+  -n sec-copilot \
+  --from-literal=SEC_USER_AGENT="YOUR_NAME your@email.com" \
+  --from-literal=OPENAI_API_KEY="YOUR_OPENAI_KEY" \
+  --from-literal=HF_TOKEN="YOUR_OPTIONAL_HF_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -k k8s/overlays/gke-cpu-fallback
+kubectl create job \
+  --from=cronjob/sec-copilot-corpus-refresh \
+  sec-copilot-corpus-refresh-manual-$(date +%s) \
+  -n sec-copilot
+kubectl rollout restart deployment/sec-copilot-api -n sec-copilot
+kubectl rollout status deployment/sec-copilot-api -n sec-copilot
+kubectl get ingress sec-copilot-ui -n sec-copilot
+```
+
+That bootstrap-plus-restart sequence is required today because the API loads the processed corpus and Chroma state on startup rather than hot-reloading them at runtime.
 
 When GPU capacity is available later, switch the API back to the GPU-targeted overlay:
 
@@ -305,17 +341,7 @@ kubectl apply -k k8s/overlays/gke-student
 kubectl rollout status deployment/sec-copilot-api -n sec-copilot
 ```
 
-For corpus refresh, trigger the Job or unsuspend the CronJob, then roll the API deployment after refresh completes. That restart step is required today because the API loads processed corpus state and Chroma state on startup rather than hot-reloading them at runtime.
-
-If the API pod is `Pending`, inspect the scheduler events:
-
-```bash
-kubectl get pods -n sec-copilot
-kubectl describe pod <api-pod-name> -n sec-copilot
-kubectl get events -n sec-copilot --sort-by=.lastTimestamp | tail -n 20
-```
-
-In CPU fallback mode, you should not see GPU-related blockers such as missing `nvidia.com/gpu`, `cloud.google.com/gke-accelerator`, or `cloud.google.com/gke-nodepool=gpu-pool`. Remaining blockers are more likely to be CPU or memory pressure, PVC attachment, or image-pull issues.
+For the full command-by-command walkthrough, including the exact quota, security-context, and runtime failures we hit and fixed during the first rollout, see [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ### Grafana Cloud integration overview
 
@@ -327,6 +353,7 @@ What already exists in the codebase:
 - route-level request counters and latency histograms in `src/sec_copilot/api/metrics.py`
 - separate query, retrieval, ingest, and eval timing metrics
 - query error and abstention counters that are useful for grounded-RAG operations
+- GKE overlay annotations on the internal API service for Grafana/Alloy scraping
 
 The intended hosted path is:
 
@@ -414,6 +441,7 @@ Grafana Cloud Kubernetes Monitoring should provide the cluster-level view around
 - readiness, liveness, and restart signals
 - HPA activity for the UI and the capped API HPA object
 - CronJob and one-off Job status for corpus refresh
+- scrape visibility for the annotated `sec-copilot-api` service on `/metrics`
 
 ### What the Grafana dashboard should show
 
@@ -444,15 +472,15 @@ These commands commit and push the tracked README changes without including the 
 
 ```bash
 git status --short
-git add README.md
-git commit -m "Polish README deployment story for Docker, GKE, and Grafana"
-git push origin deployment-prep-runtime
+git add README.md DEPLOYMENT.md cloudbuild.yaml Dockerfile.api Dockerfile.ui constraints/ k8s/
+git commit -m "Harden GKE deployment path"
+git push origin main
 ```
 
 ## Current Limitations / Next Improvements
 
 - Filing scope is currently focused on `10-K` and `10-Q`; `8-K` support is not implemented yet
-- The primary demo flow is local-first rather than deployed as a public hosted application
+- A validated GKE deployment path exists, but the repo does not claim a permanently operated public demo environment or committed Grafana Cloud collector install yet
 - Ingest and query operations are synchronous today rather than background-job driven
 - The evaluation corpus is intentionally smaller than the full live research surface
 - The current company universe is focused on one sector to keep retrieval quality and evaluation tractable

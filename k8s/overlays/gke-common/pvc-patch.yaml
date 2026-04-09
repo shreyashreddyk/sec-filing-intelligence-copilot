@@ -3,5 +3,5 @@ kind: PersistentVolumeClaim
 metadata:
   name: sec-copilot-state
 spec:
-  # Replace if your GKE cluster uses a different StorageClass.
-  storageClassName: standard-rwo
+  # Use a quota-safer CSI HDD-backed class for the first GKE rollout.
+  storageClassName: pd-standard-rwo

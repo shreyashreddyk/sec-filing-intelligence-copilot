@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/part-of: sec-filing-intelligence-copilot
 spec:
   # Default cadence is weekly, but the CronJob is suspended by default for safe manual rollout.
+  # Create the first deployed bootstrap Job from this CronJob so the Job inherits overlay image names and tags.
   schedule: "0 7 * * 1"
   suspend: true
   concurrencyPolicy: Forbid
@@ -27,6 +28,8 @@ spec:
           restartPolicy: OnFailure
           securityContext:
             runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
             fsGroup: 2000
             fsGroupChangePolicy: OnRootMismatch
           containers:

@@ -12,14 +12,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN pip install --upgrade pip \
-    && pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
-
+COPY constraints /app/constraints
 COPY pyproject.toml README.md /app/
 COPY configs /app/configs
 COPY src /app/src
 
-RUN pip install .
+RUN pip install --upgrade pip \
+    && pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install -c /app/constraints/docker-runtime.txt .
 
 RUN groupadd --system sec_copilot \
     && useradd --system --gid sec_copilot --create-home --home-dir /home/sec_copilot sec_copilot \

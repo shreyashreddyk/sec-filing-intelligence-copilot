@@ -1,0 +1,4 @@
+# Validated deployment-only model runtime for the first successful GKE rollout.
+# Torch stays pinned in the Dockerfiles because the API and UI use different wheel indexes.
+sentence-transformers==5.3.0
+transformers==5.5.0

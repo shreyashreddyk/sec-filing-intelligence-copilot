@@ -5,6 +5,7 @@ namespace: sec-copilot
 
 resources:
   - ../../base
+  - pd-standard-rwo-storageclass.yaml
 
 images:
   # Replace these Artifact Registry paths with your own GCP project and repository names.
@@ -17,5 +18,6 @@ images:
 
 patches:
   - path: api-hpa-cap-patch.yaml
+  - path: api-service-grafana-scrape-patch.yaml
   - path: pvc-patch.yaml
   - path: ui-deployment-cpu-patch.yaml

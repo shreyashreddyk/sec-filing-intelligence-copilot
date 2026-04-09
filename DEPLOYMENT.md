@@ -12,7 +12,8 @@ It is written from the operator/author perspective and reflects the actual seque
 - internal API through a `ClusterIP` service
 - shared PVC for processed corpus and Chroma state
 - suspended corpus refresh CronJob for safe manual bootstrap
-- Grafana-ready API service annotations for future `/metrics` scraping
+- Grafana Cloud Kubernetes Monitoring connected in a dedicated `grafana-k8s-monitoring` namespace
+- API service annotations that let Alloy scrape `GET /metrics` from inside the cluster
 
 ## Architecture assumptions
 
@@ -310,20 +311,64 @@ kubectl get svc -n sec-copilot
 
 That split is deliberate. The UI stays public, while the heavier retrieval and generation service remains cluster-internal.
 
-## Grafana Cloud preparation
+## Grafana Cloud installation
 
-This repo does not yet commit a Grafana Cloud collector install, but it now does persist the scrape-ready API service annotations in the GKE overlay:
+After the application deployment was stable, the next operator step was connecting the cluster to Grafana Cloud Kubernetes Monitoring.
+
+The final working posture is:
+
+- Grafana monitoring workloads installed into `grafana-k8s-monitoring`
+- cluster metrics visible in the Grafana UI
+- FastAPI `/metrics` scraped from the internal `sec-copilot-api` service
+- hosted deployment proof available from both the GKE console and Grafana UI screenshots in this repo
+
+The repo persists the scrape-ready API service annotations in the GKE overlay:
 
 - `k8s.grafana.com/scrape: "true"`
 - `k8s.grafana.com/metrics.path: /metrics`
 - `k8s.grafana.com/metrics.portNumber: "8000"`
 - `k8s.grafana.com/job: sec-copilot-api`
 
-That means the next step after a successful deployment is:
+The Helm install came from the Grafana Cloud-generated Kubernetes Monitoring command, but two operator adjustments mattered:
 
-1. connect the cluster to Grafana Cloud Kubernetes Monitoring
-2. let Alloy or the Grafana collector scrape the annotated API service
-3. verify both cluster metrics and FastAPI app metrics are landing
+1. install into a dedicated `grafana-k8s-monitoring` namespace instead of mixing monitoring resources into the app namespace
+2. remove the erroneous trailing dots from generated Grafana endpoint URLs such as `grafana.net./...`
+
+The first-pass operator recommendation was also to simplify the install if needed by disabling `opencost` and `kepler` rather than debugging extra components before the core metrics and logs path was healthy. The important outcome for this deployment is that Grafana Cloud now shows the cluster and monitoring data is visible in the UI.
+
+## Hosted proof gallery
+
+### Core hosted proof
+
+`GKE cluster overview`
+
+![GKE cluster overview](assets/gke-grafana-demo/gke-cluster-overview.png)
+
+`GKE node pool details`
+
+![GKE node pool details](assets/gke-grafana-demo/gke-node-pool-details.png)
+
+`GKE workloads overview`
+
+![GKE workloads overview](assets/gke-grafana-demo/gke-workloads-overview.png)
+
+`Grafana Kubernetes cardinality`
+
+![Grafana Kubernetes cardinality](assets/gke-grafana-demo/grafana-kubernetes-cardinality.png)
+
+`Grafana Kubernetes metrics status`
+
+![Grafana Kubernetes metrics status](assets/gke-grafana-demo/grafana-kubernetes-metrics-status.png)
+
+### Supporting infrastructure proof
+
+`GKE monitoring workloads overview`
+
+![GKE monitoring workloads overview](assets/gke-grafana-demo/gke-monitoring-workloads-overview.png)
+
+`Bound PVC on pd-standard-rwo`
+
+![Bound PVC on pd-standard-rwo](assets/gke-grafana-demo/gke-persistent-volume-claim.png)
 
 ## Why the CPU fallback overlay is the default first path
 

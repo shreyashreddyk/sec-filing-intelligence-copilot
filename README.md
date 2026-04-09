@@ -9,7 +9,8 @@
 ![CI](https://img.shields.io/badge/ci-GitHub%20Actions-2088FF)
 ![RAG Evaluation](https://img.shields.io/badge/focus-RAG%20Evaluation-6A5ACD)
 
-[![Watch Demo](https://img.shields.io/badge/demo-Watch%20YouTube%20Demo-red?logo=youtube&logoColor=white)](https://youtu.be/5gisz5Mcxpg)
+[![Watch Local Demo](https://img.shields.io/badge/demo-Watch%20Local%20Demo-red?logo=youtube&logoColor=white)](https://youtu.be/5gisz5Mcxpg)
+[![Watch GKE + Grafana Demo](https://img.shields.io/badge/demo-Watch%20GKE%20%2B%20Grafana%20Demo-red?logo=youtube&logoColor=white)](https://youtu.be/OcPIU9NniNw)
 
 Production-oriented RAG system for SEC filings that ingests live 10-K and 10-Q reports, retrieves evidence with hybrid search, reranks results, and returns grounded answers with explicit citations.
 
@@ -183,9 +184,28 @@ The repo now includes the exact deployment path that was validated live on GKE:
 - create the shared runtime PVC through the quota-safer `pd-standard-rwo` StorageClass in the GKE overlay
 - bootstrap the first live corpus with `kubectl create job --from=cronjob/sec-copilot-corpus-refresh ...`
 - restart the API after refresh so the serving pod reloads the rebuilt corpus and Chroma state
-- expose FastAPI `/metrics` through Grafana-ready service annotations in the GKE overlay
+- expose FastAPI `/metrics` through service annotations that Grafana Cloud now uses for in-cluster scraping
 
 The full operator walkthrough, including the failure/debug path that was fixed during the first rollout, lives in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+### Hosted deployment proof
+
+The current hosted proof point is a real GKE deployment in `us-west1` with:
+
+- public Streamlit UI through GKE Ingress
+- internal FastAPI service behind `ClusterIP`
+- shared PVC-backed runtime state for the processed corpus and Chroma index
+- Grafana Cloud Kubernetes Monitoring connected and visible for both cluster telemetry and app-metric scraping
+
+Portfolio proof assets from the hosted rollout:
+
+| GKE cluster overview | GKE workloads overview |
+| --- | --- |
+| ![GKE cluster overview](assets/gke-grafana-demo/gke-cluster-overview.png) | ![GKE workloads overview](assets/gke-grafana-demo/gke-workloads-overview.png) |
+
+| Grafana Kubernetes cardinality | Grafana Kubernetes metrics status |
+| --- | --- |
+| ![Grafana Kubernetes cardinality](assets/gke-grafana-demo/grafana-kubernetes-cardinality.png) | ![Grafana Kubernetes metrics status](assets/gke-grafana-demo/grafana-kubernetes-metrics-status.png) |
 
 ## Quickstart
 
@@ -345,7 +365,7 @@ For the full command-by-command walkthrough, including the exact quota, security
 
 ### Grafana Cloud integration overview
 
-The repo is instrumented for Grafana Cloud, but it does not claim a live Grafana stack or hosted dashboard URL yet.
+The hosted deployment now includes a working Grafana Cloud Kubernetes Monitoring connection.
 
 What already exists in the codebase:
 
@@ -355,11 +375,19 @@ What already exists in the codebase:
 - query error and abstention counters that are useful for grounded-RAG operations
 - GKE overlay annotations on the internal API service for Grafana/Alloy scraping
 
-The intended hosted path is:
+What was required in the hosted rollout:
 
-1. use Grafana Cloud Kubernetes Monitoring to collect cluster-level signals from the GKE cluster
-2. scrape the FastAPI `/metrics` endpoint from inside the cluster
-3. correlate pod health and resource usage with API request latency, failure, and abstention behavior
+1. install Grafana Cloud Kubernetes Monitoring into a dedicated `grafana-k8s-monitoring` namespace
+2. clean up the Grafana-generated Helm values so the remote-write and Loki endpoints do not retain erroneous trailing-dot hostnames
+3. keep the FastAPI service annotations in place so Alloy can scrape `GET /metrics` from inside the cluster
+4. verify both cluster telemetry and `sec_copilot_*` application metrics in the Grafana UI
+
+Current public claim:
+
+- GKE deployment is validated
+- Grafana Cloud monitoring is connected and visible
+- app metrics are scrape-ready and part of the hosted monitoring story
+- collector credentials and tenant-specific Helm values remain operator-managed rather than committed into the repo
 
 Relevant runtime env vars for deployment prep:
 
@@ -434,7 +462,7 @@ These metrics are designed to make grounded-RAG behavior visible, not just gener
 
 ### Cluster metrics
 
-Grafana Cloud Kubernetes Monitoring should provide the cluster-level view around those app metrics:
+Grafana Cloud Kubernetes Monitoring now provides the cluster-level view around those app metrics:
 
 - pod CPU and memory usage for the API, UI, and refresh workloads
 - node pressure and scheduling behavior for the API workload in either CPU fallback or future GPU mode
@@ -453,7 +481,7 @@ For this repo, the most useful dashboard is a combined application and cluster v
 - HPA behavior, especially whether only the UI is scaling while the API stays fixed at one replica
 - refresh-job activity alongside any API rollout needed to load the new corpus state
 
-There is no committed dashboard JSON in the repo yet. The honest current story is a Grafana-ready metrics surface plus Kubernetes manifests that give Grafana Cloud enough structure to visualize serving health and capacity once the collector side is connected.
+There is no committed dashboard JSON in the repo yet. The honest current story is a working hosted monitoring path: the app exports useful Prometheus metrics, the GKE overlay exposes them for scraping, and Grafana Cloud is now connected and visible for the hosted cluster.
 
 ## Repository Structure
 
@@ -468,25 +496,25 @@ Makefile              Common local development and validation commands
 
 ## Recommended Git Commands
 
-These commands commit and push the tracked README changes without including the local-only `docs/` trail:
+After replacing `GKE_GRAFANA_DEMO_URL_PLACEHOLDER` with the final hosted demo URL, these commands commit and push the tracked public docs and hosted proof assets without including the local-only `docs/` trail:
 
 ```bash
 git status --short
-git add README.md DEPLOYMENT.md cloudbuild.yaml Dockerfile.api Dockerfile.ui constraints/ k8s/
-git commit -m "Harden GKE deployment path"
+git add README.md DEPLOYMENT.md assets/gke-grafana-demo
+git commit -m "Document hosted GKE and Grafana proof"
 git push origin main
 ```
 
 ## Current Limitations / Next Improvements
 
 - Filing scope is currently focused on `10-K` and `10-Q`; `8-K` support is not implemented yet
-- A validated GKE deployment path exists, but the repo does not claim a permanently operated public demo environment or committed Grafana Cloud collector install yet
+- A validated GKE deployment path exists and Grafana Cloud monitoring is connected, but the hosted demo video URL is still intentionally left as a placeholder until the final upload is published
 - Ingest and query operations are synchronous today rather than background-job driven
 - The evaluation corpus is intentionally smaller than the full live research surface
 - The current company universe is focused on one sector to keep retrieval quality and evaluation tractable
 - The serving stack is still local-disk oriented: processed chunks live under `data/`, Chroma persists under `artifacts/chroma`, and the API loads the processed corpus into memory on startup
 - Horizontal Kubernetes scaling is not ready yet because multi-replica API pods would need shared state or externalized storage for the corpus and vector index
-- Grafana Cloud collector configuration is still an operator step rather than a committed in-repo deployment artifact
+- Grafana Cloud collector installation remains an operator-managed step rather than a committed in-repo deployment artifact because credentials and tenant-specific endpoints should stay out of Git
 
 ## What makes this production-ready?
 
